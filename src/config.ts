@@ -14,6 +14,8 @@ export interface UserConfig {
 
 export type Config = Record<string, ToolConfig> & {
   user?: UserConfig;
+  /** グローバル設定: true で lines モードのツールをターン単位で1枚のカードにまとめる */
+  grouping?: boolean;
 };
 
 export function loadConfig(configPath: string): Config {
@@ -40,7 +42,7 @@ export function loadConfig(configPath: string): Config {
       if (prop in target) {
         return target[prop];
       }
-      if (prop === 'user') {
+      if (prop === 'user' || prop === 'grouping') {
         return undefined;
       }
       if ('default' in target) {

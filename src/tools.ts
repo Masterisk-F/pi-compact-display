@@ -11,6 +11,7 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { ZERO, wrapWithBox } from "./uiUtils";
 import { Config } from "./config";
+import { formatCallLine } from "./renderUtils";
 
 // ── Tool cache ──
 const toolCache = new Map<string, ReturnType<typeof createBuiltInTools>>();
@@ -50,8 +51,7 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			return getTools(ctx.cwd).bash.execute(toolCallId, params, signal, onUpdate);
 		},
 		renderCall(args, theme, context) {
-			const cmd = (args.command || "").length > 80 ? (args.command || "").slice(0, 77) + "..." : args.command || "";
-			return wrapWithBox(new Text(`$ ${cmd}`, 0, 0), theme, context);
+			return wrapWithBox(new Text(formatCallLine("bash", args), 0, 0), theme, context);
 		},
 		renderResult(_result, { expanded, isPartial }, theme, context) {
 			if (isPartial) return ZERO;
@@ -87,8 +87,7 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			return getTools(ctx.cwd).write.execute(toolCallId, params, signal, onUpdate);
 		},
 		renderCall(args, theme, context) {
-			const n = args.content ? args.content.split("\n").length : 0;
-			return wrapWithBox(new Text(`write ${args.path || "..."}` + (n > 0 ? ` (${n} lines)` : ""), 0, 0), theme, context);
+			return wrapWithBox(new Text(formatCallLine("write", args), 0, 0), theme, context);
 		},
 		renderResult(_result, { expanded, isPartial }, theme, context) {
 			if (isPartial) return ZERO;
@@ -111,7 +110,7 @@ export function registerCustomTools(pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			return getTools(ctx.cwd).edit.execute(toolCallId, params, signal, onUpdate);
 		},
-		renderCall(args, theme, context) { return wrapWithBox(new Text(`edit ${args.path || "..."}`, 0, 0), theme, context); },
+		renderCall(args, theme, context) { return wrapWithBox(new Text(formatCallLine("edit", args), 0, 0), theme, context); },
 		renderResult(_result, { expanded, isPartial }, theme, context) {
 			if (isPartial) return ZERO;
 			const text = (_result.content.find((c: any) => c.type === "text") as any)?.text ?? "";

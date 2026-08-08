@@ -11,6 +11,7 @@ It helps keep your context and screen clean by limiting overly long tool outputs
 - **Per-Tool Configuration**: Set different display modes for each tool.
 - **Summary Display**: Hide execution details and output only a summary like `⚡ read(1) ls(2)` at the top of the assistant's response.
 - **Line Limit & Padding Removal**: Limit the number of output lines and automatically strip empty padding lines.
+- **Grouped Tool Results**: With `grouping` enabled, all `lines`-mode calls in one turn are combined into a single tool card (e.g. `⚡ bash ×3` + each command/output).
 - **Support for External Tools**: Override the display settings not only for Pi's built-in tools but also for any custom tools added by other extensions.
 - **Expandable Details**: Fully supports Pi's native expand feature (e.g., pressing `Ctrl+O` in the TUI), overriding the limits to show the full output.
 
@@ -93,6 +94,7 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 
 ```json
 {
+  "grouping": true,
   "user": {
     "noPadding": true
   },
@@ -155,6 +157,24 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 ```
 
 - **`noPadding`** (`boolean`): Set to `true` to remove the empty lines (padding) inserted above and below your prompt input, making the UI extremely compact.
+
+### Global Setting: Grouping Tool Results (`grouping`)
+
+`lines`-mode tools normally render one tool card per call. When this is enabled, **all `lines`-mode calls within one assistant turn are combined into a single tool card**, greatly reducing the vertical space used on screen.
+
+**Configuration Example:**
+```json
+{
+  "grouping": true,
+  "bash": { "mode": "lines", "outputLines": 3, "noPadding": true },
+  "write": { "mode": "lines", "outputLines": 1 }
+}
+```
+
+- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one turn (regardless of tool name) into a single card. A count header such as `⚡ bash ×3 edit ×1` is shown at the top of the card (only when 2+ calls are combined). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined.
+- Each call's command line and output (truncated per that tool's own `outputLines`) are listed in call order.
+- Even when combined, you can press `Ctrl+O` (expand) to view the full output of every call.
+- Calls in different turns (separated by a user message) are rendered as separate cards.
 
 ---
 

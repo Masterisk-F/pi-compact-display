@@ -6,11 +6,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text, Container, Spacer } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
-import { formatOutput } from "./renderUtils";
+import { formatCallLine, formatOutput } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
 import { ZERO, wrapWithBox } from "./uiUtils";
 import { SummaryTracker } from "./state";
 import { registerCustomTools } from "./tools";
+import { GroupContent, trackChild, untrackChild, resetChildren } from "./group";
 import path from "path";
 import os from "os";
 
@@ -78,6 +79,10 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
+		// ミラーの二重登録防止: ネストしたパッチ (二重ロード時) では外側だけが trackChild する
+		const alreadyTracked = (comp as any).__piCompactTrackedBy === this;
+		(comp as any).__piCompactTrackedBy = this;
+
 		if (originalAddChildTui !== originalAddChild) {
 			if (hasProto(this, Container.prototype)) {
 				originalAddChildTui.call(this, comp);
@@ -86,6 +91,11 @@ export default function (pi: ExtensionAPI) {
 			}
 		} else {
 			originalAddChild.call(this, comp);
+		}
+
+		if (!alreadyTracked) {
+			trackChild(this, comp);
+			(comp as any).__piCompactTrackedBy = undefined;
 		}
 
 		if (config.user?.noPadding) {
@@ -102,12 +112,37 @@ export default function (pi: ExtensionAPI) {
 		Container.prototype.addChild = customAddChild;
 	}
 
+	// 親子ミラー保守: removeChild / clear もパッチする (Box は別クラスなので無関係)
+	// @ts-ignore
+	const originalRemoveChild = Container.prototype.removeChild;
+	// @ts-ignore
+	Container.prototype.removeChild = function (this: any, comp: any) {
+		originalRemoveChild.call(this, comp);
+		untrackChild(this, comp);
+	};
+
+	// @ts-ignore
+	const originalClear = Container.prototype.clear;
+	// @ts-ignore
+	Container.prototype.clear = function (this: any) {
+		originalClear.call(this);
+		resetChildren(this);
+	};
+
 	// @ts-ignore
 	const originalGetCallRenderer = ToolExecutionComponent.prototype.getCallRenderer;
 	// @ts-ignore
 	ToolExecutionComponent.prototype.getCallRenderer = function () {
 		// @ts-ignore
 		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
+
+		// Group mode: リーダーがグループ全体を描画する GroupContent を返し、非リーダーは ZERO
+		if (config.grouping === true && toolConfig.mode === 'lines') {
+			return (args: any, theme: any, context: any) => {
+				return new GroupContent(this as any, config, theme);
+			};
+		}
+
 		if (toolConfig.mode === 'count_only') {
 			return () => ZERO;
 		} else if (toolConfig.mode === 'lines') {
@@ -117,30 +152,8 @@ export default function (pi: ExtensionAPI) {
 				// If it's the mcp gateway tool, render compactly as "mcp call <tool>" with args preview
 				// @ts-ignore
 				if ((this as any).toolName === 'mcp') {
-					const action = args.action || (args.tool ? `call ${args.tool}` : '');
-					// Parse args.args (JSON string) for display
-					let actualArgs: Record<string, unknown> = {};
-					if (args.args && typeof args.args === 'string') {
-						try {
-							actualArgs = JSON.parse(args.args);
-						} catch {
-							actualArgs = {};
-						}
-					}
-					const keys = Object.keys(actualArgs);
-					let argsStr = "";
-					if (keys.length > 0) {
-						const parts = keys.map((k: string) => {
-							const v = actualArgs[k];
-							const vStr = typeof v === 'object' ? JSON.stringify(v) : String(v);
-							const truncatedV = vStr.length > 30 ? vStr.slice(0, 27) + "..." : vStr;
-							return `${k}: ${truncatedV}`;
-						});
-						argsStr = ` { ${parts.join(", ")} }`;
-					}
 					const bold = typeof theme.bold === 'function' ? theme.bold : (s: string) => s;
-					const title = theme.fg("toolTitle", bold(`mcp ${action}`));
-					return wrapWithBox(new Text(`${title}${theme.fg("dim", argsStr)}`, 0, 0), theme, context, toolConfig);
+					return wrapWithBox(new Text(theme.fg("toolTitle", bold(formatCallLine("mcp", args))), 0, 0), theme, context, toolConfig);
 				}
 				// If the original renderer exists, use it (e.g. bash, edit have their own concise renderers)
 				const origRenderer = originalGetCallRenderer.call(this);
@@ -162,6 +175,11 @@ export default function (pi: ExtensionAPI) {
 		const origRenderer = originalGetResultRenderer.call(this);
 		// @ts-ignore
 		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
+
+		// Group mode: 結果は GroupContent (call renderer が返す) が描画するので ZERO
+		if (config.grouping === true && toolConfig.mode === 'lines') {
+			return () => ZERO;
+		}
 
 		if (toolConfig.mode === 'count_only') {
 			return () => ZERO;
