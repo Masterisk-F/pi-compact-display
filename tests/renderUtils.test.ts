@@ -60,6 +60,27 @@ describe('formatOutput', () => {
     const res = formatOutput(input, config, false);
     expect(res).toBe("line1\n\nline2");
   });
+
+  it('should apply noPadding in default mode when configured', () => {
+    const input = "\n\nline1\n\n\nline2\n\n";
+    const config: ToolConfig = { mode: 'default', noPadding: true };
+    const res = formatOutput(input, config, false);
+    expect(res).toBe("line1\nline2");
+  });
+
+  it('should apply outputLines in default mode when configured', () => {
+    const input = "line1\nline2\nline3\nline4";
+    const config: ToolConfig = { mode: 'default', outputLines: 2 };
+    const res = formatOutput(input, config, false);
+    expect(res).toBe("line1\nline2");
+  });
+
+  it('should apply outputLines with noPadding together in default mode', () => {
+    const input = "\n\nline1\n\nline2\n\nline3";
+    const config: ToolConfig = { mode: 'default', noPadding: true, outputLines: 1 };
+    const res = formatOutput(input, config, false);
+    expect(res).toBe("line1");
+  });
 });
 
 describe('formatCallLine', () => {

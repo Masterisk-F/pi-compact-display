@@ -15,6 +15,18 @@ const parentMap = new WeakMap<object, Container>();
 const childrenMap = new WeakMap<Container, object[]>();
 
 export function trackChild(container: Container, comp: object): void {
+	// 既に別のコンテナに属している場合は古い親から削除する。
+	// コンポーネントが動的に移動された場合 (addChild の再呼び出し)、
+	// parentMap を上書きするだけでは古い親の childrenMap に残留し、
+	// groupOf が新旧両方のコンテナで当該コンポーネントを発見して二重描画になるため。
+	const oldParent = parentMap.get(comp);
+	if (oldParent && oldParent !== container) {
+		const oldList = childrenMap.get(oldParent);
+		if (oldList) {
+			const i = oldList.indexOf(comp);
+			if (i !== -1) oldList.splice(i, 1);
+		}
+	}
 	parentMap.set(comp, container);
 	let list = childrenMap.get(container);
 	if (!list) {

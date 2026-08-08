@@ -175,6 +175,30 @@ describe('groupOf', () => {
 		resetChildren(c);
 		expect(groupOf(t1, config)).toEqual([]);
 	});
+
+	it('should remove a component from the old container when it is moved to a new container', () => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
+		const c1 = new Container();
+		const c2 = new Container();
+		const t1 = makeTool('bash', { command: 'echo a' });
+		const t2 = makeTool('bash', { command: 'echo b' });
+
+		// c1 に t1, t2 を追加
+		trackChild(c1, t1);
+		trackChild(c1, t2);
+		expect(groupOf(t1, config)).toEqual([t1, t2]);
+		expect(groupOf(t2, config)).toEqual([t1, t2]);
+
+		// t2 を c1 → c2 へ移動 (removeChild なしで addChild だけ)
+		trackChild(c2, t2);
+
+		// c1 のグループから t2 が除去され、t1 は単独グループになる
+		expect(groupOf(t1, config)).toEqual([t1]);
+		expect(groupOf(t1, config)).not.toContain(t2);
+
+		// c2 のグループには t2 のみ (c1 由来の残留がない)
+		expect(groupOf(t2, config)).toEqual([t2]);
+	});
 });
 
 // ── GroupContent ──

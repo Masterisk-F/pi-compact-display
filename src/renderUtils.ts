@@ -1,10 +1,6 @@
 import { getEffectiveToolName, ToolConfig } from './config';
 
 export function formatOutput(input: string, config: ToolConfig, expanded: boolean): string {
-  if (config.mode !== 'lines') {
-    return input;
-  }
-
   let lines = input.split('\n');
 
   if (config.noPadding) {

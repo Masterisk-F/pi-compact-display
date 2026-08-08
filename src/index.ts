@@ -189,7 +189,9 @@ export default function (pi: ExtensionAPI) {
 
 		if (toolConfig.mode === 'count_only') {
 			return () => ZERO;
-		} else if (toolConfig.mode === 'lines') {
+		} else if (toolConfig.mode === 'lines' ||
+			(toolConfig.mode === 'default' &&
+			 (toolConfig.noPadding || toolConfig.outputLines !== undefined))) {
 			return (result: any, options: any, theme: any, context: any) => {
 				if (options.isPartial) return ZERO;
 				const textItem = result.content?.find((c: any) => c.type === "text");
@@ -213,7 +215,10 @@ export default function (pi: ExtensionAPI) {
 			return "self";
 		}
 		// Use "self" for lines mode to bypass contentBox padding (wrapWithBox handles padding via config)
-		if (toolConfig.mode === 'lines') {
+		// default モードでもフォーマットオプションがある場合は wrapWithBox が余白を扱うため同様に "self"
+		if (toolConfig.mode === 'lines' ||
+			(toolConfig.mode === 'default' &&
+			 (toolConfig.noPadding || toolConfig.outputLines !== undefined))) {
 			return "self";
 		}
 		return originalGetRenderShell.call(this);
@@ -255,6 +260,14 @@ export default function (pi: ExtensionAPI) {
 
 		// Guard 3: テキストブロックが1つもなければサマリーを差し込めないのでスキップ（リセット防止）
 		if (!content.some((b: any) => b.type === "text")) return;
+
+		// Guard 4: ターン最終メッセージ (stopReason === "stop") でのみサマリー注入＋リセットを行う。
+		// Pi は1ターン内で複数の message_end を発火する（toolUse → ツール実行 → 最終応答）ため、
+		// 中間メッセージ（テキストを含む思考メッセージ等）でリセットすると同一ターン内の
+		// 後続ツールが集計漏れする。stopReason の意味（agent-session.js より）:
+		//   "toolUse" = ツール要求中（Guard 1 で除外済み）, "stop" = ターン正常終了,
+		//   "error" / "aborted" / "length" = 異常系（継続なしだが注入対象外）
+		if ((event.message as any).stopReason !== "stop") return;
 
 		const summary = tracker.getSummaryLine();
 		const hasErrors = tracker.hasErrors();
