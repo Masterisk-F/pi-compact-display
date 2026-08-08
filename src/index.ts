@@ -4,10 +4,11 @@ import {
 	UserMessageComponent,
 	AssistantMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Text, Container, Spacer } from "@earendil-works/pi-tui";
+import { Text, Container } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
 import { formatCallLine, formatOutput } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
+import { isSpacer, isUserMessage, isAssistantMessage } from "./componentUtils";
 import { ZERO, wrapWithBox } from "./uiUtils";
 import { SummaryTracker } from "./state";
 import { registerCustomTools } from "./tools";
@@ -38,10 +39,6 @@ export default function (pi: ExtensionAPI) {
 
 	let lastAddedSpacer: any = null;
 	let lastSignificantComponentType: string | null = null;
-
-	const isSpacer = (c: any) => c && c.constructor && c.constructor.name === "Spacer";
-	const isUserMessage = (c: any) => c && c.constructor && c.constructor.name === "UserMessageComponent";
-	const isAssistantMessage = (c: any) => c && c.constructor && c.constructor.name === "AssistantMessageComponent";
 
 	// Retrieve Container prototype from AssistantMessageComponent to be loader-agnostic
 	const containerProto = Object.getPrototypeOf(AssistantMessageComponent.prototype) || Container.prototype;
@@ -83,18 +80,25 @@ export default function (pi: ExtensionAPI) {
 		const alreadyTracked = (comp as any).__piCompactTrackedBy === this;
 		(comp as any).__piCompactTrackedBy = this;
 
-		if (originalAddChildTui !== originalAddChild) {
-			if (hasProto(this, Container.prototype)) {
-				originalAddChildTui.call(this, comp);
+		// originalAddChild が例外を投げても、トラッキング状態がコンポーネントに残留 (リーク) しないよう
+		// try/finally で保護する。trackChild は addChild が成功した場合のみ実行する。
+		try {
+			if (originalAddChildTui !== originalAddChild) {
+				if (hasProto(this, Container.prototype)) {
+					originalAddChildTui.call(this, comp);
+				} else {
+					originalAddChild.call(this, comp);
+				}
 			} else {
 				originalAddChild.call(this, comp);
 			}
-		} else {
-			originalAddChild.call(this, comp);
-		}
 
-		if (!alreadyTracked) {
-			trackChild(this, comp);
+			if (!alreadyTracked) {
+				trackChild(this, comp);
+			}
+		} finally {
+			// ネストしたパッチ (外側が trackChild する) の場合も最終状態は undefined で良い
+			// (外側の finally でも同様にクリアされる)。
 			(comp as any).__piCompactTrackedBy = undefined;
 		}
 
@@ -137,7 +141,8 @@ export default function (pi: ExtensionAPI) {
 		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
 
 		// Group mode: リーダーがグループ全体を描画する GroupContent を返し、非リーダーは ZERO
-		if (config.grouping === true && toolConfig.mode === 'lines') {
+		// (ツール個別設定 grouping:false のツールはグループ化から除外して単独表示)
+		if (config.grouping === true && toolConfig.mode === 'lines' && toolConfig.grouping !== false) {
 			return (args: any, theme: any, context: any) => {
 				return new GroupContent(this as any, config, theme);
 			};
@@ -177,7 +182,8 @@ export default function (pi: ExtensionAPI) {
 		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
 
 		// Group mode: 結果は GroupContent (call renderer が返す) が描画するので ZERO
-		if (config.grouping === true && toolConfig.mode === 'lines') {
+		// (ツール個別設定 grouping:false のツールはグループ化から除外して単独表示)
+		if (config.grouping === true && toolConfig.mode === 'lines' && toolConfig.grouping !== false) {
 			return () => ZERO;
 		}
 

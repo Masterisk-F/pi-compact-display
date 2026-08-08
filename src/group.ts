@@ -1,6 +1,7 @@
 import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { Config, getEffectiveToolName, resolveToolConfig } from "./config";
 import { formatCallLine, formatOutput } from "./renderUtils";
+import { isUserMessage, isToolComp } from "./componentUtils";
 
 // ─────────────────────────────────────────────────────────────
 // 親子ミラー
@@ -44,18 +45,17 @@ export function resetChildren(container: Container): void {
 // 先頭メンバー = リーダー。リーダーだけがグループ全体を描画する。
 // ─────────────────────────────────────────────────────────────
 
-const isUserMessage = (c: object) => (c as any)?.constructor?.name === "UserMessageComponent";
 // ターン境界 = ユーザーメッセージのみ。
 // thinking やモデル切替のたびに AssistantMessageComponent が追加されても分割しない
 // (pi は 1 ユーザー入力に対し複数の assistant メッセージを生成するため)。
 const isTurnBoundary = isUserMessage;
 
-const isToolComp = (c: object) => (c as any)?.constructor?.name === "ToolExecutionComponent";
-
 function isGroupMember(c: object, config: Config): boolean {
 	if (!isToolComp(c)) return false;
 	const anyC = c as any;
-	return resolveToolConfig(anyC.toolName, anyC.args, config).mode === "lines";
+	const toolConfig = resolveToolConfig(anyC.toolName, anyC.args, config);
+	// ツール個別設定 grouping:false のツールはグループ化から除外して単独表示
+	return toolConfig.mode === "lines" && toolConfig.grouping !== false;
 }
 
 /**

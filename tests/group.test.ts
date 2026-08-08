@@ -135,6 +135,31 @@ describe('groupOf', () => {
 		expect(groupOf(t1, config)).toEqual([t1]);
 	});
 
+	it('should exclude a tool with grouping:false from the group', () => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' }, write: { mode: 'lines', grouping: false } });
+		const c = new Container();
+		const b = makeTool('bash', { command: 'echo a' });
+		const w = makeTool('write', { path: 'a.txt' });
+		trackChild(c, b);
+		trackChild(c, w);
+		// write (grouping:false) はグループメンバーに含まれず、bash は単独グループになる
+		expect(groupOf(b, config)).toEqual([b]);
+		expect(groupOf(w, config)).not.toContain(w);
+	});
+
+	it('should group across a grouping:false tool without including it', () => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' }, write: { mode: 'lines', grouping: false } });
+		const c = new Container();
+		const t1 = makeTool('bash', { command: 'echo a' });
+		const w = makeTool('write', { path: 'a.txt' });
+		const t2 = makeTool('bash', { command: 'echo b' });
+		trackChild(c, t1);
+		trackChild(c, w);
+		trackChild(c, t2);
+		expect(groupOf(t1, config)).toEqual([t1, t2]);
+		expect(groupOf(t2, config)).toEqual([t1, t2]);
+	});
+
 	it('should update the group after removeChild/resetChildren', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
 		const c = new Container();
