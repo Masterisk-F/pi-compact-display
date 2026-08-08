@@ -39,14 +39,16 @@ export function resetChildren(container: Container): void {
 // ─────────────────────────────────────────────────────────────
 // グループ走査
 //
-// グループ = 直近のターン境界 (UserMessage / AssistantMessage) の間に存在する
-// lines モードの ToolExecutionComponent 全て (ツール名・間に挟まるコンポーネントは問わない)。
+// グループ = 直前のユーザーメッセージ (ターン境界) 以降の lines モード ToolExecutionComponent 全て
+// (thinking / モデル切替で assistant メッセージが複数に分かれても1グループ)。
 // 先頭メンバー = リーダー。リーダーだけがグループ全体を描画する。
 // ─────────────────────────────────────────────────────────────
 
 const isUserMessage = (c: object) => (c as any)?.constructor?.name === "UserMessageComponent";
-const isAssistantMessage = (c: object) => (c as any)?.constructor?.name === "AssistantMessageComponent";
-const isTurnBoundary = (c: object) => isUserMessage(c) || isAssistantMessage(c);
+// ターン境界 = ユーザーメッセージのみ。
+// thinking やモデル切替のたびに AssistantMessageComponent が追加されても分割しない
+// (pi は 1 ユーザー入力に対し複数の assistant メッセージを生成するため)。
+const isTurnBoundary = isUserMessage;
 
 const isToolComp = (c: object) => (c as any)?.constructor?.name === "ToolExecutionComponent";
 
@@ -140,30 +142,31 @@ export class GroupContent {
 		const expanded = !!this.owner.expanded;
 		const lines: string[] = [];
 
-		// ヘッダー (2回以上まとめたときのみ)
-		if (members.length > 1) {
-			const counts = new Map<string, number>();
-			for (const m of members) {
-				const name = getEffectiveToolName(m.toolName, m.args);
-				counts.set(name, (counts.get(name) || 0) + 1);
-			}
-			const header = `⚡ ${[...counts.entries()].map(([n, c]) => `${n} ×${c}`).join(" ")}`;
-			lines.push(theme.fg("toolTitle", bold(header)));
+		// 集約ヘッダー (常に表示)
+		const counts = new Map<string, number>();
+		for (const m of members) {
+			const name = getEffectiveToolName(m.toolName, m.args);
+			counts.set(name, (counts.get(name) || 0) + 1);
 		}
+		const header = `⚡ ${[...counts.entries()].map(([n, c]) => `${n} ×${c}`).join(" ")}`;
+		lines.push(theme.fg("toolTitle", bold(header)));
 
-		members.forEach((m, idx) => {
-			if (idx > 0) lines.push("");
-			lines.push(theme.fg("toolTitle", formatCallLine(m.toolName, m.args)));
+		// 展開時のみ: 各呼び出しのコマンド行 + 全出力
+		if (expanded) {
+			members.forEach((m, idx) => {
+				if (idx > 0) lines.push("");
+				lines.push(theme.fg("toolTitle", formatCallLine(m.toolName, m.args)));
 
-			const raw = getResultText(m);
-			if (raw) {
-				const mConfig = resolveToolConfig(m.toolName, m.args, this.config);
-				const formatted = formatOutput(raw, mConfig, expanded);
-				if (formatted) {
-					lines.push(...formatted.split("\n").map((l: string) => theme.fg("toolOutput", l)));
+				const raw = getResultText(m);
+				if (raw) {
+					const mConfig = resolveToolConfig(m.toolName, m.args, this.config);
+					const formatted = formatOutput(raw, mConfig, true);
+					if (formatted) {
+						lines.push(...formatted.split("\n").map((l: string) => theme.fg("toolOutput", l)));
+					}
 				}
-			}
-		});
+			});
+		}
 
 		return lines.join("\n");
 	}

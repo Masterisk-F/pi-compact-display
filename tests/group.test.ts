@@ -101,7 +101,7 @@ describe('groupOf', () => {
 		expect(groupOf(t3, config)).toEqual([t3]);
 	});
 
-	it('should break the group at an assistant message boundary', () => {
+	it('should NOT break the group at an assistant message boundary (thinking / model switch)', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
 		const c = new Container();
 		const t1 = makeTool('bash', { command: 'echo a' });
@@ -109,8 +109,8 @@ describe('groupOf', () => {
 		trackChild(c, t1);
 		trackChild(c, assistantMsg);
 		trackChild(c, t2);
-		expect(groupOf(t1, config)).toEqual([t1]);
-		expect(groupOf(t2, config)).toEqual([t2]);
+		expect(groupOf(t1, config)).toEqual([t1, t2]);
+		expect(groupOf(t2, config)).toEqual([t1, t2]);
 	});
 
 	it('should still group across a count_only tool (invisible) within the turn', () => {
@@ -159,7 +159,7 @@ describe('GroupContent', () => {
 		vi.resetAllMocks();
 	});
 
-	it('should render the whole group from the leader: header + call lines + outputs', () => {
+	it('should render only the aggregation header from the leader (no call lines / outputs)', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines', outputLines: 2 } });
 		const c = new Container();
 		const t1 = makeTool('bash', { command: 'echo a' }, { result: resultOf('line1\nline2\nline3') });
@@ -170,12 +170,10 @@ describe('GroupContent', () => {
 		const gc = new GroupContent(t1, config, theme);
 		const text = gc.render(60).join("\n");
 		expect(text).toContain('⚡ bash ×2');
-		expect(text).toContain('$ echo a');
-		expect(text).toContain('line1');
-		expect(text).toContain('line2');
-		expect(text).not.toContain('line3'); // outputLines=2 でトランケート
-		expect(text).toContain('$ echo b');
-		expect(text).toContain('outB');
+		expect(text).not.toContain('$ echo a');
+		expect(text).not.toContain('line1');
+		expect(text).not.toContain('$ echo b');
+		expect(text).not.toContain('outB');
 	});
 
 	it('should render nothing for a non-leader member', () => {
@@ -190,7 +188,7 @@ describe('GroupContent', () => {
 		expect(gc.render(60)).toEqual([]);
 	});
 
-	it('should render a singleton without a header', () => {
+	it('should render a singleton with the header ⚡ bash ×1', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
 		const c = new Container();
 		const t1 = makeTool('bash', { command: 'echo solo' }, { result: resultOf('solo out') });
@@ -198,9 +196,9 @@ describe('GroupContent', () => {
 
 		const gc = new GroupContent(t1, config, theme);
 		const text = gc.render(60).join("\n");
-		expect(text).not.toContain('⚡');
-		expect(text).toContain('$ echo solo');
-		expect(text).toContain('solo out');
+		expect(text).toContain('⚡ bash ×1');
+		expect(text).not.toContain('$ echo solo');
+		expect(text).not.toContain('solo out');
 	});
 
 	it('should use error background when any member errored', () => {
@@ -227,35 +225,41 @@ describe('GroupContent', () => {
 		expect(text).toContain('toolPendingBg');
 	});
 
-	it('should expand all members when the leader is expanded', () => {
+	it('should expand all members (call lines + full output) when the leader is expanded', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines', outputLines: 2 } });
 		const c = new Container();
-		const t1 = makeTool('bash', { command: 'long' }, { result: resultOf('l1\nl2\nl3\nl4'), expanded: true });
+		const t1 = makeTool('bash', { command: 'echo a' }, { result: resultOf('l1\nl2\nl3\nl4'), expanded: true });
+		const t2 = makeTool('bash', { command: 'echo b' }, { result: resultOf('r1\nr2') });
 		trackChild(c, t1);
+		trackChild(c, t2);
 
 		const gc = new GroupContent(t1, config, theme);
 		const text = gc.render(60).join("\n");
+		expect(text).toContain('⚡ bash ×2');
+		expect(text).toContain('$ echo a');
 		expect(text).toContain('l1');
-		expect(text).toContain('l4'); // expanded 時は outputLines を無視
+		expect(text).toContain('l4'); // expanded 時は outputLines を無視して全文
+		expect(text).toContain('$ echo b');
+		expect(text).toContain('r2');
 	});
 
-	it('should respect per-member outputLines', () => {
+	it('should show full output for all members when expanded (outputLines ignored)', () => {
 		const config = makeConfig({
 			grouping: true,
 			bash: { mode: 'lines', outputLines: 1 },
 			edit: { mode: 'lines', outputLines: 3 },
 		});
 		const c = new Container();
-		const b = makeTool('bash', { command: 'x' }, { result: resultOf('b1\nb2\nb3') });
-		const e = makeTool('edit', { path: 'f.txt' }, { result: resultOf('e1\ne2\ne3') });
+		const b = makeTool('bash', { command: 'x' }, { result: resultOf('b1\nb2\nb3'), expanded: true });
+		const e = makeTool('edit', { path: 'f.txt' }, { result: resultOf('e1\ne2\ne3\ne4') });
 		trackChild(c, b);
 		trackChild(c, e);
 
 		const gc = new GroupContent(b, config, theme);
 		const text = gc.render(60).join("\n");
 		expect(text).toContain('b1');
-		expect(text).not.toContain('b2');
+		expect(text).toContain('b3'); // outputLines=1 でも展開時は全文
 		expect(text).toContain('e1');
-		expect(text).toContain('e3');
+		expect(text).toContain('e4');
 	});
 });

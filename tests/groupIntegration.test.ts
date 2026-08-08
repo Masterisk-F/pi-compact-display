@@ -27,7 +27,7 @@ describe('Grouping integration (patched renderers)', () => {
 	const makeComponent = (toolName: string, id: string, args: any) =>
 		new ToolExecutionComponent(toolName, id, args, {}, undefined as any, fakeUi as any, process.cwd());
 
-	it('should render consecutive bash calls as one card from the leader', () => {
+	it('should render consecutive bash calls as one card from the leader (header only)', () => {
 		const c = new Container();
 		const t1 = makeComponent('bash', '1', { command: 'echo a' });
 		const t2 = makeComponent('bash', '2', { command: 'echo b' });
@@ -40,15 +40,25 @@ describe('Grouping integration (patched renderers)', () => {
 		expect(leaderLines.length).toBeGreaterThan(0);
 		const text = leaderLines.join('\n');
 		expect(text).toContain('⚡ bash ×2');
-		expect(text).toContain('$ echo a');
-		expect(text).toContain('A1');
-		expect(text).toContain('A2');
-		expect(text).not.toContain('A3'); // outputLines=2
-		expect(text).toContain('$ echo b');
-		expect(text).toContain('B1');
+		// デフォルトでは集約ヘッダーのみ (コマンド行・出力は出ない)
+		expect(text).not.toContain('$ echo a');
+		expect(text).not.toContain('A1');
+		expect(text).not.toContain('$ echo b');
+		expect(text).not.toContain('B1');
 
 		// 非リーダーは描画しない
 		expect(t2.render(60).length).toBe(0);
+
+		// 展開時はコマンド行 + 全出力が表示される
+		t1.setExpanded(true);
+		const expandedText = t1.render(60).join('\n');
+		expect(expandedText).toContain('⚡ bash ×2');
+		expect(expandedText).toContain('$ echo a');
+		expect(expandedText).toContain('A1');
+		expect(expandedText).toContain('A2');
+		expect(expandedText).toContain('A3');
+		expect(expandedText).toContain('$ echo b');
+		expect(expandedText).toContain('B1');
 	});
 
 	it('should split groups at a user-message boundary', () => {
@@ -65,15 +75,15 @@ describe('Grouping integration (patched renderers)', () => {
 		c.addChild(t2);
 
 
-		// t1 は単独グループ (境界で分割): ヘッダーなし・t2 を含まない
+		// t1 は単独グループ (境界で分割): ⚡ bash ×1・コマンド行なし・t2 を含まない
 		const text1 = t1.render(60).join('\n');
-		expect(text1).toContain('$ echo a');
-		expect(text1).not.toContain('⚡');
+		expect(text1).toContain('⚡ bash ×1');
+		expect(text1).not.toContain('$ echo a');
 		expect(text1).not.toContain('$ echo b');
 
 		// t2 も単独グループ
 		const text2 = t2.render(60).join('\n');
-		expect(text2).toContain('$ echo b');
-		expect(text2).not.toContain('⚡');
+		expect(text2).toContain('⚡ bash ×1');
+		expect(text2).not.toContain('$ echo b');
 	});
 });

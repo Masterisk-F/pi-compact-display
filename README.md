@@ -11,7 +11,7 @@ It helps keep your context and screen clean by limiting overly long tool outputs
 - **Per-Tool Configuration**: Set different display modes for each tool.
 - **Summary Display**: Hide execution details and output only a summary like `⚡ read(1) ls(2)` at the top of the assistant's response.
 - **Line Limit & Padding Removal**: Limit the number of output lines and automatically strip empty padding lines.
-- **Grouped Tool Results**: With `grouping` enabled, all `lines`-mode calls in one turn are combined into a single tool card (e.g. `⚡ bash ×3` + each command/output).
+- **Grouped Tool Results**: With `grouping` enabled, all `lines`-mode calls in one user turn are combined into a single aggregation line (e.g. `⚡ bash ×3`).
 - **Support for External Tools**: Override the display settings not only for Pi's built-in tools but also for any custom tools added by other extensions.
 - **Expandable Details**: Fully supports Pi's native expand feature (e.g., pressing `Ctrl+O` in the TUI), overriding the limits to show the full output.
 
@@ -160,7 +160,7 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 
 ### Global Setting: Grouping Tool Results (`grouping`)
 
-`lines`-mode tools normally render one tool card per call. When this is enabled, **all `lines`-mode calls within one assistant turn are combined into a single tool card**, greatly reducing the vertical space used on screen.
+`lines`-mode tools normally render one tool card per call. When this is enabled, **all `lines`-mode calls within one user turn are combined into a single card that shows only the aggregation header**, greatly reducing the vertical space used on screen. Even if the assistant splits its work into multiple thinking passes (multiple assistant messages), everything in the same user turn stays in one card.
 
 **Configuration Example:**
 ```json
@@ -171,9 +171,8 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 }
 ```
 
-- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one turn (regardless of tool name) into a single card. A count header such as `⚡ bash ×3 edit ×1` is shown at the top of the card (only when 2+ calls are combined). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined.
-- Each call's command line and output (truncated per that tool's own `outputLines`) are listed in call order.
-- Even when combined, you can press `Ctrl+O` (expand) to view the full output of every call.
+- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one user turn (regardless of tool name) into a single card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined.
+- Command lines and outputs are hidden by default; press `Ctrl+O` (expand) to show every call's command line and full output.
 - Calls in different turns (separated by a user message) are rendered as separate cards.
 
 ---
