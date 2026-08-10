@@ -11,10 +11,56 @@ import { isUserMessage, isToolComp } from "./componentUtils";
 // GroupContent はこのミラーから兄弟の ToolExecutionComponent を探してグループを組む。
 // ─────────────────────────────────────────────────────────────
 
-const parentMap = new WeakMap<object, Container>();
+/**
+ * WeakMap の size をテストから確認できるようにするラッパー。
+ * 本番ロジックの API (get/has/set/delete) は WeakMap と同一。
+ */
+class TrackedWeakMap<K extends object, V> {
+	private readonly map = new WeakMap<K, V>();
+	private count = 0;
+
+	has(k: K): boolean {
+		return this.map.has(k);
+	}
+
+	get(k: K): V | undefined {
+		return this.map.get(k);
+	}
+
+	set(k: K, v: V): void {
+		if (!this.map.has(k)) this.count++;
+		this.map.set(k, v);
+	}
+
+	delete(k: K): void {
+		if (this.map.has(k)) {
+			this.map.delete(k);
+			this.count--;
+		}
+	}
+
+	get size(): number {
+		return this.count;
+	}
+}
+
+const parentMap = new TrackedWeakMap<object, Container>();
 const childrenMap = new WeakMap<Container, object[]>();
 
+/**
+ * テスト専用: ミラー状態の内省 (本番コードでは使用しない)。
+ * Q1 (resetChildren が逆引き parentMap を残す件) の検証に使う。
+ */
+export function _mirrorDebug(): { parentMapSize: number } {
+	return { parentMapSize: parentMap.size };
+}
+
 export function trackChild(container: Container, comp: object): void {
+	// 同一コンテナへの再追加はミラーに重複登録しない。
+	// ホストの Container.addChild は無条件に再 push するため、重複登録すると
+	// グループヘッダーのカウント (⚡ bash ×2 等) が水増しされる。
+	if (parentMap.get(comp) === container) return;
+
 	// 既に別のコンテナに属している場合は古い親から削除する。
 	// コンポーネントが動的に移動された場合 (addChild の再呼び出し)、
 	// parentMap を上書きするだけでは古い親の childrenMap に残留し、
@@ -46,6 +92,14 @@ export function untrackChild(container: Container, comp: object): void {
 }
 
 export function resetChildren(container: Container): void {
+	const old = childrenMap.get(container);
+	if (old) {
+		// 逆引き parentMap に残骸を残さない (Container.clear() 後に move 等が
+		// 誤って古い親と誤認しないようにするため)。
+		for (const c of old) {
+			if (parentMap.get(c) === container) parentMap.delete(c);
+		}
+	}
 	childrenMap.set(container, []);
 }
 
@@ -120,6 +174,8 @@ export class GroupContent {
 		this.theme = theme;
 		const leaderConfig = resolveToolConfig(owner.toolName, owner.args, config);
 		this.text = new Text("", 0, 0);
+		// ボックス全体の上部パディングはリーダーの noPadding に従う (仕様)。
+		// メンバー個別の noPadding は出力行レベルで formatOutput が空行除去を適用する。
 		this.box = new Box(leaderConfig.noPadding ? 0 : 1, 0, (t: string) => theme.bg(this.currentBgName(), t));
 		this.box.addChild(this.text);
 	}

@@ -3,6 +3,8 @@ import fs from 'fs';
 import { Container } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import extension from '../src/index';
+import { groupOf } from '../src/group';
+import { loadConfig } from '../src/config';
 
 vi.mock('fs');
 
@@ -85,5 +87,59 @@ describe('Grouping integration (patched renderers)', () => {
 		const text2 = t2.render(60).join('\n');
 		expect(text2).toContain('⚡ bash ×1');
 		expect(text2).not.toContain('$ echo b');
+	});
+
+	it('should clear the tracking marker and not track when addChild throws (Q2)', () => {
+		const origAddChild = Container.prototype.addChild;
+		Container.prototype.addChild = () => { throw new Error('boom'); };
+		try {
+			const c = new Container();
+			const t = makeComponent('bash', '1', { command: 'echo a' });
+			expect(() => c.addChild(t)).toThrow('boom');
+			expect((t as any).__piCompactTrackedBy).toBeUndefined();
+
+			const config = loadConfig('/test/config.json');
+			expect(groupOf(t, config)).toEqual([]);
+		} finally {
+			Container.prototype.addChild = origAddChild;
+		}
+	});
+
+	it('should track a component only once when the extension is loaded twice (Q2)', () => {
+		// 再ロード (二重読み込み) をシミュレート
+		extension({ on: vi.fn(), registerTool: vi.fn() } as any);
+
+		const c = new Container();
+		const t = makeComponent('bash', '1', { command: 'echo a' });
+		t.updateResult({ content: [{ type: 'text', text: 'A' }], isError: false });
+		c.addChild(t);
+
+		const text = t.render(60).join('\n');
+		expect(text).toContain('⚡ bash ×1');
+		expect(text).not.toContain('⚡ bash ×2');
+
+		const config = loadConfig('/test/config.json');
+		expect(groupOf(t, config)).toEqual([t]);
+	});
+
+	it('should NOT apply the extension renderer to default-mode tools (D1 revert)', () => {
+		vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+			fakeTool: { mode: 'default', outputLines: 2 },
+			bash: { mode: 'lines' },
+		}));
+		// loadConfig が新しい mock の json を読むようにコンポーネントを生成
+		const tDefault = makeComponent('fakeTool', '1', {});
+		const tLines = makeComponent('bash', '2', {});
+
+		const c = new Container();
+		c.addChild(tDefault);
+		c.addChild(tLines);
+
+		// default モードは "self" シェルを強制されず、フォーマッタも登録されない
+		expect(tDefault.getRenderShell()).toBe('default');
+		expect(tDefault.getResultRenderer()).toBeUndefined(); // mock では origRenderer は undefined
+
+		// lines モードは "self" シェルになる
+		expect(tLines.getRenderShell()).toBe('self');
 	});
 });

@@ -166,13 +166,13 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 ```json
 {
   "grouping": true,
-  "bash": { "mode": "lines", "outputLines": 3, "noPadding": true },
+  "bash": { "mode": "lines", "outputLines": 3, "grouping": false },
   "write": { "mode": "lines", "outputLines": 1 }
 }
 ```
 
-- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one user turn (regardless of tool name) into a single card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined.
-- Command lines and outputs are hidden by default; press `Ctrl+O` (expand) to show every call's command line and full output.
+- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one user turn (regardless of tool name) into a single card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined. You can exclude specific tools from the group by setting `"grouping": false` in their individual tool configuration.
+- Command lines and outputs are hidden by default; press `Ctrl+O` (expand) to show every call's command line and full, untruncated output for all tools in the group.
 - Calls in different turns (separated by a user message) are rendered as separate cards.
 
 ---

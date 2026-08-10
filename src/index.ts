@@ -189,9 +189,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (toolConfig.mode === 'count_only') {
 			return () => ZERO;
-		} else if (toolConfig.mode === 'lines' ||
-			(toolConfig.mode === 'default' &&
-			 (toolConfig.noPadding || toolConfig.outputLines !== undefined))) {
+		} else if (toolConfig.mode === 'lines') {
 			return (result: any, options: any, theme: any, context: any) => {
 				if (options.isPartial) return ZERO;
 				const textItem = result.content?.find((c: any) => c.type === "text");
@@ -215,10 +213,9 @@ export default function (pi: ExtensionAPI) {
 			return "self";
 		}
 		// Use "self" for lines mode to bypass contentBox padding (wrapWithBox handles padding via config)
-		// default モードでもフォーマットオプションがある場合は wrapWithBox が余白を扱うため同様に "self"
-		if (toolConfig.mode === 'lines' ||
-			(toolConfig.mode === 'default' &&
-			 (toolConfig.noPadding || toolConfig.outputLines !== undefined))) {
+		// (default モードはフォーマット対象外 — 前回の I2 対応で追加された default+format 分岐は
+		// コール行との非対称を生むため取り消し、pi 標準の描画に従わせる)
+		if (toolConfig.mode === 'lines') {
 			return "self";
 		}
 		return originalGetRenderShell.call(this);
@@ -248,44 +245,43 @@ export default function (pi: ExtensionAPI) {
 		if (event.message.role !== "assistant") return;
 		if (!tracker.hasGrouped()) return;
 
-		// Guard 1: stopReason が "toolUse" のメッセージはツール要求中なのでスキップ
-		if ((event.message as any).stopReason === "toolUse") return;
+		// ターン中: ツール要求メッセージ (stopReason "toolUse") では集計を保持する。
+		// Pi は1ターン内で複数の message_end を発火する (toolUse → ツール実行 → 最終応答) ため、
+		// ここでリセットすると同一ターン内の後続ツールが集計漏れする (a21efc7 の I3 対応)。
+		const stopReason = (event.message as any).stopReason;
+		if (stopReason === "toolUse") return;
 
 		const content = event.message.content;
 		if (!Array.isArray(content)) return;
 
-		// Guard 2: content に toolCall ブロックが含まれる場合はツール要求中なのでスキップ
-		// (stopReason ガードのフォールバック、型名は "tool_use" ではなく "toolCall")
-		if (content.some((b: any) => b.type === "toolCall")) return;
+		const hasText = content.some((b: any) => b.type === "text");
 
-		// Guard 3: テキストブロックが1つもなければサマリーを差し込めないのでスキップ（リセット防止）
-		if (!content.some((b: any) => b.type === "text")) return;
+		// 正常系終端 (stopReason "stop" かつテキストあり): サマリーを注入し、注入後にリセットする。
+		if (stopReason === "stop" && hasText) {
+			const summary = tracker.getSummaryLine();
+			const hasErrors = tracker.hasErrors();
+			tracker.reset();
 
-		// Guard 4: ターン最終メッセージ (stopReason === "stop") でのみサマリー注入＋リセットを行う。
-		// Pi は1ターン内で複数の message_end を発火する（toolUse → ツール実行 → 最終応答）ため、
-		// 中間メッセージ（テキストを含む思考メッセージ等）でリセットすると同一ターン内の
-		// 後続ツールが集計漏れする。stopReason の意味（agent-session.js より）:
-		//   "toolUse" = ツール要求中（Guard 1 で除外済み）, "stop" = ターン正常終了,
-		//   "error" / "aborted" / "length" = 異常系（継続なしだが注入対象外）
-		if ((event.message as any).stopReason !== "stop") return;
+			const theme = ctx?.ui?.theme;
+			const styledSummary = theme
+				? theme.bg(hasErrors ? "toolErrorBg" : "toolSuccessBg", ` ${summary} `)
+				: summary;
 
-		const summary = tracker.getSummaryLine();
-		const hasErrors = tracker.hasErrors();
+			const newContent = content.map((b: any) => {
+				if (b.type === "text") {
+					return { ...b, text: `${styledSummary}\n${b.text}` };
+				}
+				return b;
+			});
+
+			return { message: { ...event.message, content: newContent } };
+		}
+
+		// 異常系終端 (stopReason "error" / "aborted" / "length" / undefined) または
+		// テキストなし終端: サマリーは注入できないがターンは終了している。
+		// 前ターンのカウントとエラーフラグを次ターンへリークさせないため必ずリセットする (I1)。
 		tracker.reset();
-
-		const theme = ctx?.ui?.theme;
-		const styledSummary = theme
-			? theme.bg(hasErrors ? "toolErrorBg" : "toolSuccessBg", ` ${summary} `)
-			: summary;
-
-		const newContent = content.map((b: any) => {
-			if (b.type === "text") {
-				return { ...b, text: `${styledSummary}\n${b.text}` };
-			}
-			return b;
-		});
-
-		return { message: { ...event.message, content: newContent } };
+		return;
 	});
 
 	// ── Strip summary before sending to LLM ──

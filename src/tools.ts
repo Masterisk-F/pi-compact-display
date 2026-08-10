@@ -57,7 +57,8 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			if (isPartial) return ZERO;
 			if (!expanded) return ZERO;
 			const text = (_result.content.find((c: any) => c.type === "text") as any)?.text ?? "";
-			const out = text.split("\n").slice(0, 30).map((l: string) => theme.fg("toolOutput", l)).join("\n");
+			// 展開時は全文を表示する (grouping 時と上限を揃えるため、ハードコードされた上限は持たない)
+			const out = text.split("\n").map((l: string) => theme.fg("toolOutput", l)).join("\n");
 			return wrapWithBox(new Text(out, 0, 0), theme, context);
 		},
 	});
@@ -123,7 +124,8 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			if (!expanded) return ZERO;
 			const details = _result.details as { diff?: string } | undefined;
 			if (details?.diff) {
-				const lines = details.diff.split("\n").slice(0, 30);
+				// 展開時は全文を表示する (ハードコードされた上限は持たない)
+				const lines = details.diff.split("\n");
 				const out = lines.map(l => {
 					if (l.startsWith("+") && !l.startsWith("+++")) return theme.fg("success", l);
 					if (l.startsWith("-") && !l.startsWith("---")) return theme.fg("error", l);

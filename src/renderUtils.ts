@@ -1,7 +1,11 @@
 import { getEffectiveToolName, ToolConfig } from './config';
+import { sanitizeToolText } from './sanitize';
 
 export function formatOutput(input: string, config: ToolConfig, expanded: boolean): string {
-  let lines = input.split('\n');
+  // ツール出力はホストの getTextOutput と同じ意味論 (stripAnsi + 制御文字除去 + CR 除去) で
+  // 無害化してから整形する。グループカード展開時と拡張 default ルートがホストの
+  // サニタイザを迂回して ANSI/OSC-8 バイトが端末に届かないようにするため。
+  let lines = sanitizeToolText(input).split('\n');
 
   if (config.noPadding) {
     lines = lines.filter(line => line.trim() !== '');
@@ -9,9 +13,6 @@ export function formatOutput(input: string, config: ToolConfig, expanded: boolea
 
   if (!expanded && config.outputLines !== undefined) {
     lines = lines.slice(0, config.outputLines);
-  } else if (expanded) {
-    // 全文表示時の上限（プランに記載の通り上限ありとする、例えば 1000行）
-    lines = lines.slice(0, 1000);
   }
 
   return lines.join('\n');
@@ -42,7 +43,9 @@ export function formatCallLine(toolName: string, args: any): string {
   }
 
   if (toolName === 'mcp') {
-    const action = args.action || (args.tool ? `call ${args.tool}` : '');
+    // ベース名は getEffectiveToolName に統一 (例: mcp:read)。グループヘッダーと
+    // コール行の表示が食い違わないようにするために独自の 'mcp call <tool>' は使わない。
+    const base = getEffectiveToolName(toolName, args);
     // Parse args.args (JSON string) for display
     let actualArgs: Record<string, unknown> = {};
     if (typeof args.args === 'string') {
@@ -63,7 +66,7 @@ export function formatCallLine(toolName: string, args: any): string {
       });
       argsStr = ` { ${parts.join(', ')} }`;
     }
-    return `mcp ${action}${argsStr}`;
+    return `${base}${argsStr}`;
   }
 
   return getEffectiveToolName(toolName, args);

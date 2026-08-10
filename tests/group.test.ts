@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import { Container } from "@earendil-works/pi-tui";
 import { loadConfig } from '../src/config';
-import { GroupContent, groupOf, trackChild, untrackChild, resetChildren } from '../src/group';
+import { GroupContent, groupOf, trackChild, untrackChild, resetChildren, _mirrorDebug } from '../src/group';
 
 vi.mock('fs');
 
@@ -160,6 +160,37 @@ describe('groupOf', () => {
 		expect(groupOf(t2, config)).toEqual([t1, t2]);
 	});
 
+	it('should remove reverse parentMap entries on resetChildren (Q1)', () => {
+		const initialSize = _mirrorDebug().parentMapSize;
+		const c = new Container();
+		const t1 = makeTool('bash', { command: 'echo a' });
+		const t2 = makeTool('bash', { command: 'echo b' });
+		trackChild(c, t1);
+		trackChild(c, t2);
+		expect(_mirrorDebug().parentMapSize).toBe(initialSize + 2);
+
+		resetChildren(c);
+		expect(_mirrorDebug().parentMapSize).toBe(initialSize);
+
+		// クリーン後も再利用可能 (再追加で正しく1件になる)
+		trackChild(c, t1);
+		expect(_mirrorDebug().parentMapSize).toBe(initialSize + 1);
+	});
+
+	it('should not double-count a component re-added to the same container (Q3)', () => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
+		const c = new Container();
+		const t1 = makeTool('bash', { command: 'echo a' }, { result: resultOf('A') });
+		trackChild(c, t1);
+		trackChild(c, t1); // 同一コンテナへの再追加 (ホストは無条件に再 push する)
+		expect(groupOf(t1, config)).toEqual([t1]);
+
+		const gc = new GroupContent(t1, config, theme);
+		const text = gc.render(60).join('\n');
+		expect(text).toContain('⚡ bash ×1');
+		expect(text).not.toContain('⚡ bash ×2');
+	});
+
 	it('should update the group after removeChild/resetChildren', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
 		const c = new Container();
@@ -290,6 +321,56 @@ describe('GroupContent', () => {
 		expect(text).toContain('l4'); // expanded 時は outputLines を無視して全文
 		expect(text).toContain('$ echo b');
 		expect(text).toContain('r2');
+	});
+
+	it('should render the mcp header and call line with the same base name (Q5)', () => {
+		const config = makeConfig({ grouping: true, mcp: { mode: 'lines' } });
+		const c = new Container();
+		const m1 = makeTool('mcp', {
+			tool: 'read',
+			args: JSON.stringify({ path: '/etc/hostname' }),
+		}, { result: resultOf('a'), expanded: true });
+		const m2 = makeTool('mcp', {
+			tool: 'read',
+			args: JSON.stringify({ path: '/etc/hosts' }),
+		}, { result: resultOf('b') });
+		trackChild(c, m1);
+		trackChild(c, m2);
+
+		const gc = new GroupContent(m1, config, theme);
+		const text = gc.render(60).join('\n');
+		expect(text).toContain('⚡ mcp:read ×2');
+		expect(text).toContain('<toolTitle>mcp:read { path: /etc/hostname }</toolTitle>');
+		expect(text).toContain('<toolTitle>mcp:read { path: /etc/hosts }</toolTitle>');
+	});
+
+	it('should apply each member\'s own noPadding to its output lines when expanded (Q6)', () => {
+		const config = makeConfig({
+			grouping: true,
+			bash: { mode: 'lines' },                 // リーダー: noPadding なし → 空行保持
+			edit: { mode: 'lines', noPadding: true }, // メンバー: noPadding → 空行除去
+		});
+		const c = new Container();
+		const b = makeTool('bash', { command: 'x' }, { result: resultOf('b1\n\nb2'), expanded: true });
+		const e = makeTool('edit', { path: 'f.txt' }, { result: resultOf('e1\n\ne2') });
+		trackChild(c, b);
+		trackChild(c, e);
+
+		const gc = new GroupContent(b, config, theme);
+		const text = gc.render(60).join('\n');
+		// リーダー (noPadding なし) は空行を保持 (<toolOutput></toolOutput> が存在する)
+		expect(text).toContain('<toolOutput>b1</toolOutput>');
+		expect(text).toContain('<toolOutput></toolOutput>');
+		expect(text).toContain('<toolOutput>b2</toolOutput>');
+		
+		// メンバー (noPadding:true) は空行が除去される
+		expect(text).toContain('<toolOutput>e1</toolOutput>');
+		expect(text).toContain('<toolOutput>e2</toolOutput>');
+		// e1 と e2 の間に空行はない
+		const e1Index = text.indexOf('<toolOutput>e1</toolOutput>');
+		const e2Index = text.indexOf('<toolOutput>e2</toolOutput>');
+		const textBetween = text.substring(e1Index, e2Index);
+		expect(textBetween).not.toContain('<toolOutput></toolOutput>');
 	});
 
 	it('should show full output for all members when expanded (outputLines ignored)', () => {
