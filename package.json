@@ -1,6 +1,6 @@
 {
   "name": "pi-compact-display",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Compact display extension for Pi tools.",
   "repository": {
     "type": "git",
