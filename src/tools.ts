@@ -11,6 +11,7 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { ZERO, wrapWithBox } from "./uiUtils";
 import { Config } from "./config";
+import { formatCallLine } from "./renderUtils";
 
 // ── Tool cache ──
 const toolCache = new Map<string, ReturnType<typeof createBuiltInTools>>();
@@ -50,14 +51,14 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			return getTools(ctx.cwd).bash.execute(toolCallId, params, signal, onUpdate);
 		},
 		renderCall(args, theme, context) {
-			const cmd = (args.command || "").length > 80 ? (args.command || "").slice(0, 77) + "..." : args.command || "";
-			return wrapWithBox(new Text(`$ ${cmd}`, 0, 0), theme, context);
+			return wrapWithBox(new Text(formatCallLine("bash", args), 0, 0), theme, context);
 		},
 		renderResult(_result, { expanded, isPartial }, theme, context) {
 			if (isPartial) return ZERO;
 			if (!expanded) return ZERO;
 			const text = (_result.content.find((c: any) => c.type === "text") as any)?.text ?? "";
-			const out = text.split("\n").slice(0, 30).map((l: string) => theme.fg("toolOutput", l)).join("\n");
+			// 展開時は全文を表示する (grouping 時と上限を揃えるため、ハードコードされた上限は持たない)
+			const out = text.split("\n").map((l: string) => theme.fg("toolOutput", l)).join("\n");
 			return wrapWithBox(new Text(out, 0, 0), theme, context);
 		},
 	});
@@ -87,8 +88,7 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			return getTools(ctx.cwd).write.execute(toolCallId, params, signal, onUpdate);
 		},
 		renderCall(args, theme, context) {
-			const n = args.content ? args.content.split("\n").length : 0;
-			return wrapWithBox(new Text(`write ${args.path || "..."}` + (n > 0 ? ` (${n} lines)` : ""), 0, 0), theme, context);
+			return wrapWithBox(new Text(formatCallLine("write", args), 0, 0), theme, context);
 		},
 		renderResult(_result, { expanded, isPartial }, theme, context) {
 			if (isPartial) return ZERO;
@@ -111,7 +111,7 @@ export function registerCustomTools(pi: ExtensionAPI) {
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			return getTools(ctx.cwd).edit.execute(toolCallId, params, signal, onUpdate);
 		},
-		renderCall(args, theme, context) { return wrapWithBox(new Text(`edit ${args.path || "..."}`, 0, 0), theme, context); },
+		renderCall(args, theme, context) { return wrapWithBox(new Text(formatCallLine("edit", args), 0, 0), theme, context); },
 		renderResult(_result, { expanded, isPartial }, theme, context) {
 			if (isPartial) return ZERO;
 			const text = (_result.content.find((c: any) => c.type === "text") as any)?.text ?? "";
@@ -124,7 +124,8 @@ export function registerCustomTools(pi: ExtensionAPI) {
 			if (!expanded) return ZERO;
 			const details = _result.details as { diff?: string } | undefined;
 			if (details?.diff) {
-				const lines = details.diff.split("\n").slice(0, 30);
+				// 展開時は全文を表示する (ハードコードされた上限は持たない)
+				const lines = details.diff.split("\n");
 				const out = lines.map(l => {
 					if (l.startsWith("+") && !l.startsWith("+++")) return theme.fg("success", l);
 					if (l.startsWith("-") && !l.startsWith("---")) return theme.fg("error", l);

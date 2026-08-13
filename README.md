@@ -11,6 +11,7 @@ It helps keep your context and screen clean by limiting overly long tool outputs
 - **Per-Tool Configuration**: Set different display modes for each tool.
 - **Summary Display**: Hide execution details and output only a summary like `⚡ read(1) ls(2)` at the top of the assistant's response.
 - **Line Limit & Padding Removal**: Limit the number of output lines and automatically strip empty padding lines.
+- **Grouped Tool Results**: With `grouping` enabled, all `lines`-mode calls in one user turn are combined into a single aggregation line (e.g. `⚡ bash ×3`).
 - **Support for External Tools**: Override the display settings not only for Pi's built-in tools but also for any custom tools added by other extensions.
 - **Expandable Details**: Fully supports Pi's native expand feature (e.g., pressing `Ctrl+O` in the TUI), overriding the limits to show the full output.
 
@@ -71,7 +72,8 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 | --- | --- | --- |
 | **`mode`** | `string` | The display mode for the tool. Must be `"count_only"`, `"lines"`, or `"default"`. (Required) |
 | **`outputLines`** | `number` | The maximum number of lines to display. Only effective when `mode` is `"lines"`. (Optional) |
-| **`noPadding`** | `boolean` | Whether to remove leading, trailing, and consecutive empty lines from the output. Set to `true` to omit empty lines. Only effective when `mode` is `"lines"`. (Optional) |
+| **`noPadding`** | `boolean` | Whether to remove leading, trailing, and consecutive empty lines from the output. Set to `true` to omit empty lines. Only effective when `mode` is `"lines"`. When grouped, the overall padding of the group card follows the `noPadding` setting of the leader (the first tool in the group). (Optional) |
+| **`grouping`** | `boolean` | Whether to include this tool in the group card when the global `grouping` setting is enabled. Set to `false` to exclude it from grouping and display it as a separate card. Default is `true`. (Optional) |
 
 ### Display Modes (`mode`)
 
@@ -93,6 +95,7 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 
 ```json
 {
+  "grouping": true,
   "user": {
     "noPadding": true
   },
@@ -155,6 +158,23 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 ```
 
 - **`noPadding`** (`boolean`): Set to `true` to remove the empty lines (padding) inserted above and below your prompt input, making the UI extremely compact.
+
+### Global Setting: Grouping Tool Results (`grouping`)
+
+`lines`-mode tools normally render one tool card per call. When this is enabled, **all `lines`-mode calls within one user turn are combined into a single card that shows only the aggregation header**, greatly reducing the vertical space used on screen. Even if the assistant splits its work into multiple thinking passes (multiple assistant messages), everything in the same user turn stays in one card.
+
+**Configuration Example:**
+```json
+{
+  "grouping": true,
+  "bash": { "mode": "lines", "outputLines": 3, "grouping": false },
+  "write": { "mode": "lines", "outputLines": 1 }
+}
+```
+
+- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one user turn (regardless of tool name) into a single card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined. You can exclude specific tools from the group by setting `"grouping": false` in their individual tool configuration.
+- Command lines and outputs are hidden by default; press `Ctrl+O` (expand) to show every call's command line and full, untruncated output for all tools in the group.
+- Calls in different turns (separated by a user message) are rendered as separate cards.
 
 ---
 

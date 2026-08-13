@@ -4,13 +4,15 @@ import {
 	UserMessageComponent,
 	AssistantMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Text, Container, Spacer } from "@earendil-works/pi-tui";
+import { Text, Container } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
-import { formatOutput } from "./renderUtils";
+import { formatCallLine, formatOutput } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
+import { isSpacer, isUserMessage, isAssistantMessage } from "./componentUtils";
 import { ZERO, wrapWithBox } from "./uiUtils";
 import { SummaryTracker } from "./state";
 import { registerCustomTools } from "./tools";
+import { GroupContent, trackChild, untrackChild, resetChildren } from "./group";
 import path from "path";
 import os from "os";
 
@@ -37,10 +39,6 @@ export default function (pi: ExtensionAPI) {
 
 	let lastAddedSpacer: any = null;
 	let lastSignificantComponentType: string | null = null;
-
-	const isSpacer = (c: any) => c && c.constructor && c.constructor.name === "Spacer";
-	const isUserMessage = (c: any) => c && c.constructor && c.constructor.name === "UserMessageComponent";
-	const isAssistantMessage = (c: any) => c && c.constructor && c.constructor.name === "AssistantMessageComponent";
 
 	// Retrieve Container prototype from AssistantMessageComponent to be loader-agnostic
 	const containerProto = Object.getPrototypeOf(AssistantMessageComponent.prototype) || Container.prototype;
@@ -78,14 +76,30 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		if (originalAddChildTui !== originalAddChild) {
-			if (hasProto(this, Container.prototype)) {
-				originalAddChildTui.call(this, comp);
+		// ミラーの二重登録防止: ネストしたパッチ (二重ロード時) では外側だけが trackChild する
+		const alreadyTracked = (comp as any).__piCompactTrackedBy === this;
+		(comp as any).__piCompactTrackedBy = this;
+
+		// originalAddChild が例外を投げても、トラッキング状態がコンポーネントに残留 (リーク) しないよう
+		// try/finally で保護する。trackChild は addChild が成功した場合のみ実行する。
+		try {
+			if (originalAddChildTui !== originalAddChild) {
+				if (hasProto(this, Container.prototype)) {
+					originalAddChildTui.call(this, comp);
+				} else {
+					originalAddChild.call(this, comp);
+				}
 			} else {
 				originalAddChild.call(this, comp);
 			}
-		} else {
-			originalAddChild.call(this, comp);
+
+			if (!alreadyTracked) {
+				trackChild(this, comp);
+			}
+		} finally {
+			// ネストしたパッチ (外側が trackChild する) の場合も最終状態は undefined で良い
+			// (外側の finally でも同様にクリアされる)。
+			(comp as any).__piCompactTrackedBy = undefined;
 		}
 
 		if (config.user?.noPadding) {
@@ -102,12 +116,38 @@ export default function (pi: ExtensionAPI) {
 		Container.prototype.addChild = customAddChild;
 	}
 
+	// 親子ミラー保守: removeChild / clear もパッチする (Box は別クラスなので無関係)
+	// @ts-ignore
+	const originalRemoveChild = Container.prototype.removeChild;
+	// @ts-ignore
+	Container.prototype.removeChild = function (this: any, comp: any) {
+		originalRemoveChild.call(this, comp);
+		untrackChild(this, comp);
+	};
+
+	// @ts-ignore
+	const originalClear = Container.prototype.clear;
+	// @ts-ignore
+	Container.prototype.clear = function (this: any) {
+		originalClear.call(this);
+		resetChildren(this);
+	};
+
 	// @ts-ignore
 	const originalGetCallRenderer = ToolExecutionComponent.prototype.getCallRenderer;
 	// @ts-ignore
 	ToolExecutionComponent.prototype.getCallRenderer = function () {
 		// @ts-ignore
 		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
+
+		// Group mode: リーダーがグループ全体を描画する GroupContent を返し、非リーダーは ZERO
+		// (ツール個別設定 grouping:false のツールはグループ化から除外して単独表示)
+		if (config.grouping === true && toolConfig.mode === 'lines' && toolConfig.grouping !== false) {
+			return (args: any, theme: any, context: any) => {
+				return new GroupContent(this as any, config, theme);
+			};
+		}
+
 		if (toolConfig.mode === 'count_only') {
 			return () => ZERO;
 		} else if (toolConfig.mode === 'lines') {
@@ -117,30 +157,8 @@ export default function (pi: ExtensionAPI) {
 				// If it's the mcp gateway tool, render compactly as "mcp call <tool>" with args preview
 				// @ts-ignore
 				if ((this as any).toolName === 'mcp') {
-					const action = args.action || (args.tool ? `call ${args.tool}` : '');
-					// Parse args.args (JSON string) for display
-					let actualArgs: Record<string, unknown> = {};
-					if (args.args && typeof args.args === 'string') {
-						try {
-							actualArgs = JSON.parse(args.args);
-						} catch {
-							actualArgs = {};
-						}
-					}
-					const keys = Object.keys(actualArgs);
-					let argsStr = "";
-					if (keys.length > 0) {
-						const parts = keys.map((k: string) => {
-							const v = actualArgs[k];
-							const vStr = typeof v === 'object' ? JSON.stringify(v) : String(v);
-							const truncatedV = vStr.length > 30 ? vStr.slice(0, 27) + "..." : vStr;
-							return `${k}: ${truncatedV}`;
-						});
-						argsStr = ` { ${parts.join(", ")} }`;
-					}
 					const bold = typeof theme.bold === 'function' ? theme.bold : (s: string) => s;
-					const title = theme.fg("toolTitle", bold(`mcp ${action}`));
-					return wrapWithBox(new Text(`${title}${theme.fg("dim", argsStr)}`, 0, 0), theme, context, toolConfig);
+					return wrapWithBox(new Text(theme.fg("toolTitle", bold(formatCallLine("mcp", args))), 0, 0), theme, context, toolConfig);
 				}
 				// If the original renderer exists, use it (e.g. bash, edit have their own concise renderers)
 				const origRenderer = originalGetCallRenderer.call(this);
@@ -162,6 +180,12 @@ export default function (pi: ExtensionAPI) {
 		const origRenderer = originalGetResultRenderer.call(this);
 		// @ts-ignore
 		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
+
+		// Group mode: 結果は GroupContent (call renderer が返す) が描画するので ZERO
+		// (ツール個別設定 grouping:false のツールはグループ化から除外して単独表示)
+		if (config.grouping === true && toolConfig.mode === 'lines' && toolConfig.grouping !== false) {
+			return () => ZERO;
+		}
 
 		if (toolConfig.mode === 'count_only') {
 			return () => ZERO;
@@ -189,6 +213,8 @@ export default function (pi: ExtensionAPI) {
 			return "self";
 		}
 		// Use "self" for lines mode to bypass contentBox padding (wrapWithBox handles padding via config)
+		// (default モードはフォーマット対象外 — 前回の I2 対応で追加された default+format 分岐は
+		// コール行との非対称を生むため取り消し、pi 標準の描画に従わせる)
 		if (toolConfig.mode === 'lines') {
 			return "self";
 		}
@@ -219,36 +245,43 @@ export default function (pi: ExtensionAPI) {
 		if (event.message.role !== "assistant") return;
 		if (!tracker.hasGrouped()) return;
 
-		// Guard 1: stopReason が "toolUse" のメッセージはツール要求中なのでスキップ
-		if ((event.message as any).stopReason === "toolUse") return;
+		// ターン中: ツール要求メッセージ (stopReason "toolUse") では集計を保持する。
+		// Pi は1ターン内で複数の message_end を発火する (toolUse → ツール実行 → 最終応答) ため、
+		// ここでリセットすると同一ターン内の後続ツールが集計漏れする (a21efc7 の I3 対応)。
+		const stopReason = (event.message as any).stopReason;
+		if (stopReason === "toolUse") return;
 
 		const content = event.message.content;
 		if (!Array.isArray(content)) return;
 
-		// Guard 2: content に toolCall ブロックが含まれる場合はツール要求中なのでスキップ
-		// (stopReason ガードのフォールバック、型名は "tool_use" ではなく "toolCall")
-		if (content.some((b: any) => b.type === "toolCall")) return;
+		const hasText = content.some((b: any) => b.type === "text");
 
-		// Guard 3: テキストブロックが1つもなければサマリーを差し込めないのでスキップ（リセット防止）
-		if (!content.some((b: any) => b.type === "text")) return;
+		// 正常系終端 (stopReason "stop" かつテキストあり): サマリーを注入し、注入後にリセットする。
+		if (stopReason === "stop" && hasText) {
+			const summary = tracker.getSummaryLine();
+			const hasErrors = tracker.hasErrors();
+			tracker.reset();
 
-		const summary = tracker.getSummaryLine();
-		const hasErrors = tracker.hasErrors();
+			const theme = ctx?.ui?.theme;
+			const styledSummary = theme
+				? theme.bg(hasErrors ? "toolErrorBg" : "toolSuccessBg", ` ${summary} `)
+				: summary;
+
+			const newContent = content.map((b: any) => {
+				if (b.type === "text") {
+					return { ...b, text: `${styledSummary}\n${b.text}` };
+				}
+				return b;
+			});
+
+			return { message: { ...event.message, content: newContent } };
+		}
+
+		// 異常系終端 (stopReason "error" / "aborted" / "length" / undefined) または
+		// テキストなし終端: サマリーは注入できないがターンは終了している。
+		// 前ターンのカウントとエラーフラグを次ターンへリークさせないため必ずリセットする (I1)。
 		tracker.reset();
-
-		const theme = ctx?.ui?.theme;
-		const styledSummary = theme
-			? theme.bg(hasErrors ? "toolErrorBg" : "toolSuccessBg", ` ${summary} `)
-			: summary;
-
-		const newContent = content.map((b: any) => {
-			if (b.type === "text") {
-				return { ...b, text: `${styledSummary}\n${b.text}` };
-			}
-			return b;
-		});
-
-		return { message: { ...event.message, content: newContent } };
+		return;
 	});
 
 	// ── Strip summary before sending to LLM ──

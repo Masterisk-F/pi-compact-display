@@ -6,6 +6,8 @@ export interface ToolConfig {
   mode: DisplayMode;
   outputLines?: number;
   noPadding?: boolean;
+  /** ツール個別設定: false を指定するとグローバルの grouping が true でもこのツールはグループ化から除外される */
+  grouping?: boolean;
 }
 
 export interface UserConfig {
@@ -14,6 +16,8 @@ export interface UserConfig {
 
 export type Config = Record<string, ToolConfig> & {
   user?: UserConfig;
+  /** グローバル設定: true で lines モードのツールをターン単位で1枚のカードにまとめる */
+  grouping?: boolean;
 };
 
 export function loadConfig(configPath: string): Config {
@@ -40,7 +44,7 @@ export function loadConfig(configPath: string): Config {
       if (prop in target) {
         return target[prop];
       }
-      if (prop === 'user') {
+      if (prop === 'user' || prop === 'grouping') {
         return undefined;
       }
       if ('default' in target) {

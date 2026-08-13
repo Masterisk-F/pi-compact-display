@@ -86,6 +86,27 @@ describe('loadConfig', () => {
     const config = loadConfig('/valid/path.json');
     expect(config.user).toBeUndefined();
   });
+
+  it('should support the global "grouping" flag', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      grouping: true,
+      bash: { mode: 'lines', outputLines: 3 }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+    expect(config.grouping).toBe(true);
+  });
+
+  it('should return undefined for "grouping" if not specified, even if "default" is specified', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      default: { mode: 'lines' }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+    expect(config.grouping).toBeUndefined();
+  });
 });
 
 describe('getEffectiveToolName', () => {
