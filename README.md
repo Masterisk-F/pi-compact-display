@@ -72,7 +72,8 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 | --- | --- | --- |
 | **`mode`** | `string` | The display mode for the tool. Must be `"count_only"`, `"lines"`, or `"default"`. (Required) |
 | **`outputLines`** | `number` | The maximum number of lines to display. Only effective when `mode` is `"lines"`. (Optional) |
-| **`noPadding`** | `boolean` | Whether to remove leading, trailing, and consecutive empty lines from the output. Set to `true` to omit empty lines. Only effective when `mode` is `"lines"`. (Optional) |
+| **`noPadding`** | `boolean` | Whether to remove leading, trailing, and consecutive empty lines from the output. Set to `true` to omit empty lines. Only effective when `mode` is `"lines"`. When grouped, the overall padding of the group card follows the `noPadding` setting of the leader (the first tool in the group). (Optional) |
+| **`grouping`** | `boolean` | Whether to include this tool in the group card when the global `grouping` setting is enabled. Set to `false` to exclude it from grouping and display it as a separate card. Default is `true`. (Optional) |
 
 ### Display Modes (`mode`)
 
