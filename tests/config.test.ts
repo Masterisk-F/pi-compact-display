@@ -107,6 +107,27 @@ describe('loadConfig', () => {
     const config = loadConfig('/valid/path.json');
     expect(config.grouping).toBeUndefined();
   });
+
+  it('should support the global "hideThinking" flag', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      hideThinking: true,
+      bash: { mode: 'lines', outputLines: 3 }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+    expect(config.hideThinking).toBe(true);
+  });
+
+  it('should return undefined for "hideThinking" if not specified, even if "default" is specified', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      default: { mode: 'lines' }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+    expect(config.hideThinking).toBeUndefined();
+  });
 });
 
 describe('getEffectiveToolName', () => {

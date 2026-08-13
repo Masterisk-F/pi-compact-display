@@ -37,6 +37,25 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
+	// ── Hide thinking blocks (issue #2) ──
+	// AssistantMessageComponent.updateContent をパッチして、config.hideThinking が true の場合に
+	// thinking コンテンツブロックを message.content から除去してからオリジナルの処理に渡す。
+	// これにより Pi の hideThinkingBlock 設定 (キーバインド toggle) の状態に関わらず
+	// thinking ブロックの表示を完全に抑制できる。
+	// @ts-ignore
+	const originalUpdateContent = AssistantMessageComponent.prototype.updateContent;
+	// @ts-ignore
+	AssistantMessageComponent.prototype.updateContent = function (message: any) {
+		if (config.hideThinking) {
+			const filtered = {
+				...message,
+				content: message.content.filter((c: any) => c.type !== "thinking"),
+			};
+			return originalUpdateContent.call(this, filtered);
+		}
+		return originalUpdateContent.call(this, message);
+	};
+
 	let lastAddedSpacer: any = null;
 	let lastSignificantComponentType: string | null = null;
 
