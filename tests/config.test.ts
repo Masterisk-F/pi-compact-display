@@ -139,6 +139,27 @@ describe('loadConfig', () => {
     const config = loadConfig('/valid/path.json');
     expect(config.hideThinking).toBe(false);
   });
+
+  it('should support "skill" config and not fall back to "default"', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      default: { mode: 'lines', noPadding: false },
+      skill: { noPadding: true }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+    expect(config.skill?.noPadding).toBe(true);
+  });
+
+  it('should return undefined for "skill" if not specified, even if "default" is specified', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      default: { mode: 'lines', noPadding: true }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+    expect(config.skill).toBeUndefined();
+  });
 });
 
 describe('getEffectiveToolName', () => {

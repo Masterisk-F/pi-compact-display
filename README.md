@@ -101,6 +101,9 @@ The configuration is in JSON format, where the key is the "tool name" and the va
   "user": {
     "noPadding": true
   },
+  "skill": {
+    "noPadding": true
+  },
   "read": { "mode": "count_only" },
   "ls": { "mode": "count_only" },
   "find": { "mode": "count_only" },
@@ -160,6 +163,21 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 ```
 
 - **`noPadding`** (`boolean`): Set to `true` to remove the empty lines (padding) inserted above and below your prompt input, making the UI extremely compact.
+
+### Skill Invocation Padding Configuration
+
+If you want to remove the vertical empty lines (vertical padding) that appear above and below the `[skill]` display (rendered when you invoke a skill via `/skill:...` or a `<skill>` block), you can configure them specifically using the `"skill"` key. Like `"user"`, this configuration is not affected by other configurations such as `"default"` and is only applied if explicitly defined.
+
+**Configuration Example:**
+```json
+{
+  "skill": {
+    "noPadding": true
+  }
+}
+```
+
+- **`noPadding`** (`boolean`): Set to `true` to remove the empty lines (padding) inserted above and below the `[skill]` block, making the UI extremely compact.
 
 ### Global Setting: Grouping Tool Results (`grouping`)
 
