@@ -16,6 +16,8 @@ export interface UserConfig {
 
 export type Config = Record<string, ToolConfig> & {
   user?: UserConfig;
+  /** スキル呼び出し ([skill] 表示) の個別設定: noPadding を指定できる (UserConfig と同一構造) */
+  skill?: UserConfig;
   /** グローバル設定: true で lines モードのツールをターン単位で1枚のカードにまとめる */
   grouping?: boolean;
   /** グローバル設定: true でアシスタントメッセージ内の thinking ブロック表示を抑制する */
@@ -46,7 +48,7 @@ export function loadConfig(configPath: string): Config {
       if (prop in target) {
         return target[prop];
       }
-      if (prop === 'user' || prop === 'grouping' || prop === 'hideThinking') {
+      if (prop === 'user' || prop === 'skill' || prop === 'grouping' || prop === 'hideThinking') {
         return undefined;
       }
       if ('default' in target) {

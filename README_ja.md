@@ -101,6 +101,9 @@ pi install .
   "user": {
     "noPadding": true
   },
+  "skill": {
+    "noPadding": true
+  },
   "read": { "mode": "count_only" },
   "ls": { "mode": "count_only" },
   "find": { "mode": "count_only" },
@@ -158,6 +161,21 @@ pi install .
 ```
 
 - **`noPadding`** (`boolean`): `true` に設定すると、ユーザー入力プロンプトの上下に挿入される空行（余白）を削除して、表示を非常にコンパクトにします。
+
+### スキル呼び出しのパディング設定
+
+`/skill:...` や `<skill>` ブロックでスキルを呼び出した際に表示される `[skill]` ブロックの上下の空行（縦方向のパディング）を削除したい場合は、特別に `"skill"` というキーを設定して制御することができます。この設定は `"user"` と同様に `"default"` などの他の設定に影響を受けず、明示的に定義された場合のみ適用されます。
+
+**設定例:**
+```json
+{
+  "skill": {
+    "noPadding": true
+  }
+}
+```
+
+- **`noPadding`** (`boolean`): `true` に設定すると、`[skill]` ブロックの上下に挿入される空行（余白）を削除して、表示を非常にコンパクトにします。
 
 ### グローバル設定: ツール結果のグループ化 (`grouping`)
 
