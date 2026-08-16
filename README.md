@@ -12,6 +12,7 @@ It helps keep your context and screen clean by limiting overly long tool outputs
 - **Summary Display**: Hide execution details and output only a summary like `⚡ read(1) ls(2)` at the top of the assistant's response.
 - **Line Limit & Padding Removal**: Limit the number of output lines and automatically strip empty padding lines.
 - **Grouped Tool Results**: With `grouping` enabled, all `lines`-mode calls in one user turn are combined into a single aggregation line (e.g. `⚡ bash ×3`).
+- **Suppress Thinking Indicator**: With `hideThinking` enabled, the "Thinking..." indicator (and full thinking blocks) shown for thinking models are hidden from the assistant messages.
 - **Support for External Tools**: Override the display settings not only for Pi's built-in tools but also for any custom tools added by other extensions.
 - **Expandable Details**: Fully supports Pi's native expand feature (e.g., pressing `Ctrl+O` in the TUI), overriding the limits to show the full output.
 
@@ -96,6 +97,7 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 ```json
 {
   "grouping": true,
+  "hideThinking": true,
   "user": {
     "noPadding": true
   },
@@ -175,6 +177,19 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 - **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one user turn (regardless of tool name) into a single card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined. You can exclude specific tools from the group by setting `"grouping": false` in their individual tool configuration.
 - Command lines and outputs are hidden by default; press `Ctrl+O` (expand) to show every call's command line and full, untruncated output for all tools in the group.
 - Calls in different turns (separated by a user message) are rendered as separate cards.
+
+### Global Setting: Suppress Thinking Indicator (`hideThinking`)
+
+Thinking-capable models may emit `thinking` content blocks, which Pi renders as a `"Thinking..."` label (or as the full thinking text when thinking display is toggled on). When this setting is enabled, those thinking blocks are filtered out of the assistant message entirely, so no `"Thinking..."` indicator (and no thinking content) appears on screen.
+
+**Configuration Example:**
+```json
+{
+  "hideThinking": true
+}
+```
+
+- **`hideThinking`** (`boolean`): Set to `true` to suppress the `"Thinking..."` indicator and all thinking content in assistant messages. Like `"user"` and `"grouping"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined.
 
 ---
 

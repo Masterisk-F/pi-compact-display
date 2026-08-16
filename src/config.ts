@@ -18,6 +18,8 @@ export type Config = Record<string, ToolConfig> & {
   user?: UserConfig;
   /** グローバル設定: true で lines モードのツールをターン単位で1枚のカードにまとめる */
   grouping?: boolean;
+  /** グローバル設定: true でアシスタントメッセージ内の thinking ブロック表示を抑制する */
+  hideThinking?: boolean;
 };
 
 export function loadConfig(configPath: string): Config {
@@ -44,7 +46,7 @@ export function loadConfig(configPath: string): Config {
       if (prop in target) {
         return target[prop];
       }
-      if (prop === 'user' || prop === 'grouping') {
+      if (prop === 'user' || prop === 'grouping' || prop === 'hideThinking') {
         return undefined;
       }
       if ('default' in target) {
