@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
-import { UserMessageComponent, SkillInvocationMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
+import { UserMessageComponent, AssistantMessageComponent, SkillInvocationMessageComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer } from "@earendil-works/pi-tui";
 import extension from '../src/index';
 
@@ -98,5 +98,30 @@ describe('SkillInvocationMessageComponent & Spacer Override', () => {
 
     // The Spacer between skill and user message is silenced
     expect(spacerBetween.lines).toBe(0);
+  });
+
+  it('should silence the Spacer inside AssistantMessageComponent when following skill invocation', () => {
+    loadExtension({ skill: { noPadding: true } });
+
+    const chatContainer = new Container();
+    const skillComp = new SkillInvocationMessageComponent(skillBlock);
+    chatContainer.addChild(skillComp);
+
+    // AssistantMessageComponent のコンストラクタは contentContainer に先頭 Spacer(1) を追加する。
+    // この時点では chatContainer.addChild(assistant) がまだ実行されておらず、共有状態
+    // lastSignificantComponentType が "skill" のままなので、内部 Spacer が抑制される。
+    const assistantMessage = new AssistantMessageComponent({
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Hello!' }
+      ]
+    });
+
+    chatContainer.addChild(assistantMessage);
+
+    // assistantMessage.contentContainer 内の Spacer が抑制されていることを確認
+    const innerSpacer = (assistantMessage as any).contentContainer.children.find((c: any) => c && c.constructor && c.constructor.name === "Spacer") as Spacer | undefined;
+    expect(innerSpacer).toBeDefined();
+    expect(innerSpacer?.lines).toBe(0); // silenced!
   });
 });
