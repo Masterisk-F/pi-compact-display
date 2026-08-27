@@ -11,3 +11,4 @@ export const isSpacer = (c: object) => isName(c, "Spacer");
 export const isUserMessage = (c: object) => isName(c, "UserMessageComponent");
 export const isAssistantMessage = (c: object) => isName(c, "AssistantMessageComponent");
 export const isToolComp = (c: object) => isName(c, "ToolExecutionComponent");
+export const isSkillInvocation = (c: object) => isName(c, "SkillInvocationMessageComponent");

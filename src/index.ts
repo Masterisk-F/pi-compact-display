@@ -3,12 +3,13 @@ import {
 	ToolExecutionComponent,
 	UserMessageComponent,
 	AssistantMessageComponent,
+	SkillInvocationMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Text, Container } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
 import { formatCallLine, formatOutput } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
-import { isSpacer, isUserMessage, isAssistantMessage } from "./componentUtils";
+import { isSpacer, isUserMessage, isAssistantMessage, isSkillInvocation } from "./componentUtils";
 import { ZERO, wrapWithBox } from "./uiUtils";
 import { SummaryTracker } from "./state";
 import { registerCustomTools } from "./tools";
@@ -56,6 +57,22 @@ export default function (pi: ExtensionAPI) {
 		return originalUpdateContent.call(this, message);
 	};
 
+	// ── Skill invocation padding (issue #3) ──
+	// SkillInvocationMessageComponent は Box を継承し、コンストラクタで super(1, 1, ...) を
+	// 呼ぶためデフォルトで paddingY = 1 (上下1行ずつの空行) が付く。updateDisplay は
+	// コンストラクタ・setExpanded・invalidate から呼ばれるため、ここで paddingY を
+	// 書き換えれば全ての経路でパディングを除去できる。
+	// @ts-ignore
+	const originalSkillUpdateDisplay = SkillInvocationMessageComponent.prototype.updateDisplay;
+	// @ts-ignore
+	SkillInvocationMessageComponent.prototype.updateDisplay = function () {
+		originalSkillUpdateDisplay.call(this);
+		if (config.skill?.noPadding) {
+			// @ts-ignore
+			this.paddingY = 0;
+		}
+	};
+
 	let lastAddedSpacer: any = null;
 	let lastSignificantComponentType: string | null = null;
 
@@ -77,17 +94,27 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const customAddChild = function (this: any, comp: any) {
-		if (config.user?.noPadding) {
+		const userNoPad = config.user?.noPadding;
+		const skillNoPad = config.skill?.noPadding;
+
+		if (userNoPad || skillNoPad) {
 			if (isSpacer(comp)) {
 				lastAddedSpacer = comp;
-				if (lastSignificantComponentType === "user") {
+				if ((lastSignificantComponentType === "user" && userNoPad) ||
+					(lastSignificantComponentType === "skill" && skillNoPad)) {
 					comp.lines = 0;
 				}
 			} else if (isUserMessage(comp)) {
-				if (lastAddedSpacer) {
+				if (userNoPad && lastAddedSpacer) {
 					lastAddedSpacer.lines = 0;
 				}
 				lastSignificantComponentType = "user";
+				lastAddedSpacer = null;
+			} else if (isSkillInvocation(comp)) {
+				if (skillNoPad && lastAddedSpacer) {
+					lastAddedSpacer.lines = 0;
+				}
+				lastSignificantComponentType = "skill";
 				lastAddedSpacer = null;
 			} else if (isAssistantMessage(comp)) {
 				lastSignificantComponentType = "assistant";
@@ -121,7 +148,7 @@ export default function (pi: ExtensionAPI) {
 			(comp as any).__piCompactTrackedBy = undefined;
 		}
 
-		if (config.user?.noPadding) {
+		if (userNoPad || skillNoPad) {
 			if (isAssistantMessage(comp)) {
 				lastSignificantComponentType = "assistant";
 			}
