@@ -128,4 +128,64 @@ describe('Tools Registration Filtering & Metadata Inheritance (D-01, D-04, D-05)
 		});
 		expect(normalized.edits).toEqual([{ oldText: 'foo', newText: 'bar' }]);
 	});
+
+	it('should set name and label for all 7 tools matching their registered name (S2)', () => {
+		setup({ default: { mode: 'count_only' } });
+		for (const name of ['bash', 'read', 'write', 'edit', 'ls', 'find', 'grep']) {
+			const def = registeredTools.get(name);
+			expect(def).toBeDefined();
+			expect(def.name).toBe(name);
+			expect(def.label).toBe(name);
+		}
+	});
+
+	it('should render ALL text blocks of a bash result when expanded (S3)', () => {
+		setup({ bash: { mode: 'lines' } });
+		const def = registeredTools.get('bash');
+		expect(def).toBeDefined();
+		const fakeTheme = {
+			fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+			bg: (color: string, text: string) => `[${color}]${text}[/${color}]`,
+		};
+		const fakeContext = { args: { command: 'echo hello' }, isError: false };
+		const box = def.renderResult(
+			{
+				content: [
+					{ type: 'text', text: 'block 1' },
+					{ type: 'text', text: 'block 2' },
+				],
+			},
+			{ expanded: true, isPartial: false },
+			fakeTheme,
+			fakeContext,
+		);
+		const lines = box.render(80).join('\n');
+		expect(lines).toContain('block 1');
+		expect(lines).toContain('block 2');
+	});
+
+	it('should render error message for write instead of args.content when an error occurs (S4 / D-04)', () => {
+		setup({ write: { mode: 'lines' } });
+		const def = registeredTools.get('write');
+		expect(def).toBeDefined();
+		const fakeTheme = {
+			fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+			bg: (color: string, text: string) => `[${color}]${text}[/${color}]`,
+		};
+		const fakeContext = {
+			args: { path: 'out.txt', content: 'SECRET_PAYLOAD' },
+			isError: true,
+		};
+		const box = def.renderResult(
+			{
+				content: [{ type: 'text', text: 'EISDIR: illegal operation on a directory' }],
+			},
+			{ expanded: true, isPartial: false },
+			fakeTheme,
+			fakeContext,
+		);
+		const lines = box.render(80).join('\n');
+		expect(lines).toContain('EISDIR: illegal operation on a directory');
+		expect(lines).not.toContain('SECRET_PAYLOAD');
+	});
 });

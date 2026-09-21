@@ -74,18 +74,8 @@ export function formatCallLine(toolName: string, args: any): string {
 }
 
 /**
- * ツール結果から「画面に出すテキスト」を決める。
- *
- * Pi はツールごとに主データの置き場が違う:
- *   - edit  : result.content は "Successfully replaced N block(s)..." のみで、
- *             差分本体は result.details.diff にある
- *   - write : result.content は "Successfully wrote N bytes..." のみで、
- *             書き込み内容は args.content にある
- *   - その他 : result.content が実行結果そのもの
- *
- * また result.content は複数の text ブロックを持ちうる (MCP 系ツールなど)。
- * Pi 本体の getTextOutput と同じく全ブロックを改行で連結する。
- * 最初の 1 件だけを見ると 2 件目以降が消える。
+ * ツール結果から「画面に出すテキスト」を決める (edit は details.diff、write は args.content に本体がある)。
+ * content は全 text ブロックを改行連結する — Pi 本体 getTextOutput と同じで、1 件目だけ見ると 2 件目以降が消える。
  */
 export function resolveResultText(toolName: string, args: any, result: any): string {
   // edit の差分 (成功時のみ。エラー時は content にエラー文が入っている)
@@ -109,11 +99,8 @@ export function resolveResultText(toolName: string, args: any, result: any): str
 }
 
 /**
- * 整形済みのツール結果テキストを着色する。
- *
- * edit の diff は行頭の +/- で意味が変わるため、Pi 本体と同じ renderDiff を使って
- * 削除行を赤・追加行を緑で描画する。他ツールの出力は一律 toolOutput 色のまま。
- * (formatOutput は ANSI を除去するため、必ず整形後に呼ぶこと)
+ * 整形済みのツール結果テキストを着色する。edit の diff のみ行頭 +/- に意味があるため renderDiff を使う。
+ * (formatOutput は ANSI を除去するので、必ず整形後に呼ぶこと)
  */
 export function colorizeResult(toolName: string, text: string, theme: any): string {
   if (!text) return "";
