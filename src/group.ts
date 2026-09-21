@@ -1,6 +1,6 @@
 import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { Config, getEffectiveToolName, resolveToolConfig } from "./config";
-import { formatCallLine, formatOutput, resolveResultText } from "./renderUtils";
+import { formatCallLine, formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
 import { isUserMessage, isToolComp } from "./componentUtils";
 
 // ─────────────────────────────────────────────────────────────
@@ -230,7 +230,7 @@ export class GroupContent {
 					const mConfig = resolveToolConfig(m.toolName, m.args, this.config);
 					const formatted = formatOutput(raw, mConfig, true);
 					if (formatted) {
-						lines.push(...formatted.split("\n").map((l: string) => theme.fg("toolOutput", l)));
+						lines.push(colorizeResult(m.toolName, formatted, theme));
 					}
 				}
 			});

@@ -1,3 +1,4 @@
+import { renderDiff } from "@earendil-works/pi-coding-agent";
 import { getEffectiveToolName, ToolConfig } from './config';
 import { sanitizeToolText } from './sanitize';
 
@@ -105,5 +106,28 @@ export function resolveResultText(toolName: string, args: any, result: any): str
     .filter((b: any) => b?.type === "text")
     .map((b: any) => b?.text ?? "")
     .join("\n");
+}
+
+/**
+ * 整形済みのツール結果テキストを着色する。
+ *
+ * edit の diff は行頭の +/- で意味が変わるため、Pi 本体と同じ renderDiff を使って
+ * 削除行を赤・追加行を緑で描画する。他ツールの出力は一律 toolOutput 色のまま。
+ * (formatOutput は ANSI を除去するため、必ず整形後に呼ぶこと)
+ */
+export function colorizeResult(toolName: string, text: string, theme: any): string {
+  if (!text) return "";
+
+  const colorizePlain = (t: string) =>
+    t.split("\n").map((l: string) => theme.fg("toolOutput", l)).join("\n");
+
+  if (toolName !== "edit") return colorizePlain(text);
+
+  try {
+    return renderDiff(text);
+  } catch {
+    // テーマ未初期化などで renderDiff が失敗しても表示は壊さない
+    return colorizePlain(text);
+  }
 }
 

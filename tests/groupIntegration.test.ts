@@ -187,4 +187,35 @@ describe('Grouping integration (patched renderers)', () => {
 		expect(expandedText).toContain('written line 2');
 		expect(expandedText).not.toContain('Successfully wrote');
 	});
+
+	it('should colorize edit diff added/removed lines in group expansion (S5)', () => {
+		vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+			grouping: true,
+			edit: { mode: 'lines' },
+		}));
+		extension({ on: vi.fn(), registerTool: vi.fn() } as any);
+
+		const c = new Container();
+		const tEdit = makeComponent('edit', '1', { path: 'a.ts', edits: [{ oldText: 'foo', newText: 'bar' }] });
+		tEdit.updateResult({
+			content: [{ type: 'text', text: 'Successfully replaced 1 block(s) in a.ts.' }],
+			details: { diff: ' 1 context\n-2 foo\n+2 bar\n 3 context' },
+			isError: false,
+		});
+		c.addChild(tEdit);
+
+		tEdit.setExpanded(true);
+		const rawLines = tEdit.render(60);
+		const removeLine = rawLines.find((l: string) => l.includes('-2 foo'));
+		const addLine = rawLines.find((l: string) => l.includes('+2 bar'));
+
+		expect(removeLine).toBeDefined();
+		expect(addLine).toBeDefined();
+
+		// - 行 (赤) と + 行 (緑) で ANSI カラーコードが異なること
+		const removeColor = removeLine?.match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
+		const addColor = addLine?.match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
+		expect(removeColor).toBe('204;102;102'); // 赤
+		expect(addColor).toBe('181;189;104');    // 緑
+	});
 });
