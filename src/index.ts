@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text, Container } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
-import { formatCallLine, formatOutput } from "./renderUtils";
+import { formatCallLine, formatOutput, resolveResultText } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
 import { isSpacer, isUserMessage, isAssistantMessage } from "./componentUtils";
 import { ZERO, wrapWithBox } from "./uiUtils";
@@ -211,8 +211,7 @@ export default function (pi: ExtensionAPI) {
 		} else if (toolConfig.mode === 'lines') {
 			return (result: any, options: any, theme: any, context: any) => {
 				if (options.isPartial) return ZERO;
-				const textItem = result.content?.find((c: any) => c.type === "text");
-				const rawText = textItem?.text ?? "";
+				const rawText = resolveResultText((this as any).toolName, (this as any).args, result);
 				const formattedText = formatOutput(rawText, toolConfig, !!options.expanded);
 				if (!formattedText) return ZERO;
 				const coloredText = formattedText.split("\n").map((l: string) => theme.fg("toolOutput", l)).join("\n");
@@ -310,5 +309,5 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// ── Register built-in tools ──
-	registerCustomTools(pi);
+	registerCustomTools(pi, config);
 }

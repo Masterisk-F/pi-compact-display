@@ -71,3 +71,39 @@ export function formatCallLine(toolName: string, args: any): string {
 
   return getEffectiveToolName(toolName, args);
 }
+
+/**
+ * ツール結果から「画面に出すテキスト」を決める。
+ *
+ * Pi はツールごとに主データの置き場が違う:
+ *   - edit  : result.content は "Successfully replaced N block(s)..." のみで、
+ *             差分本体は result.details.diff にある
+ *   - write : result.content は "Successfully wrote N bytes..." のみで、
+ *             書き込み内容は args.content にある
+ *   - その他 : result.content が実行結果そのもの
+ *
+ * また result.content は複数の text ブロックを持ちうる (MCP 系ツールなど)。
+ * Pi 本体の getTextOutput と同じく全ブロックを改行で連結する。
+ * 最初の 1 件だけを見ると 2 件目以降が消える。
+ */
+export function resolveResultText(toolName: string, args: any, result: any): string {
+  // edit の差分 (成功時のみ。エラー時は content にエラー文が入っている)
+  if (toolName === "edit" && !result?.isError) {
+    const diff = result?.details?.diff;
+    if (typeof diff === "string" && diff) return diff;
+  }
+
+  // write の書き込み内容 (成功時のみ。エラー時は content にエラー文が入っている)
+  if (toolName === "write" && !result?.isError) {
+    const c = args?.content;
+    if (typeof c === "string" && c) return c;
+  }
+
+  // 既定: content の全 text ブロックを改行で連結する
+  const blocks = Array.isArray(result?.content) ? result.content : [];
+  return blocks
+    .filter((b: any) => b?.type === "text")
+    .map((b: any) => b?.text ?? "")
+    .join("\n");
+}
+
