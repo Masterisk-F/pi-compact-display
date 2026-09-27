@@ -174,14 +174,14 @@ describe('getEffectiveToolName', () => {
     expect(getEffectiveToolName('gateway', { other: 'args' })).toBe('gateway');
   });
 
-  it('should parse mcp tool arguments specifically', () => {
+  it('should treat mcp with the same generic rule as any other tool (no special case)', () => {
+    // tool / action の値のみが接尾辞になる
     expect(getEffectiveToolName('mcp', { action: 'run' })).toBe('mcp:run');
     expect(getEffectiveToolName('mcp', { tool: 'search' })).toBe('mcp:search');
-    expect(getEffectiveToolName('mcp', { connect: 'server' })).toBe('mcp:connect');
-    expect(getEffectiveToolName('mcp', { describe: 'tool' })).toBe('mcp:describe');
-    expect(getEffectiveToolName('mcp', { search: 'query' })).toBe('mcp:search');
-    expect(getEffectiveToolName('mcp', { server: 'list' })).toBe('mcp:list');
-    expect(getEffectiveToolName('mcp', { other: 'args' })).toBe('mcp:status');
+    // mcp 専用だった引数名は接尾辞を作らない = mcp キーにフォールバックする
+    for (const args of [{ connect: 'server' }, { describe: 'tool' }, { search: 'query' }, { server: 'list' }, { other: 'args' }]) {
+      expect(getEffectiveToolName('mcp', args)).toBe('mcp');
+    }
   });
 });
 
@@ -195,7 +195,27 @@ describe('resolveToolConfig', () => {
     expect(resolveToolConfig('gateway', { tool: 'my_tool' }, config).mode).toBe('count_only');
   });
 
-  it('should resolve mcp proxy tool config via the proxy pattern', () => {
+  it('should make every displayed count_only name a usable config key (mcp included)', () => {
+    // 集計行は getEffectiveToolName の戻り値をそのまま表示するため、
+    // その名前がそのまま設定キーとして解決できることを固定する
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      mcp: { mode: 'count_only' },
+      'mcp:tavily_search': { mode: 'lines' },
+    }));
+    const config = loadConfig('/valid/path.json');
+
+    // 表示名 (= effectiveName) でそのまま引ける
+    const eff = getEffectiveToolName('mcp', { tool: 'tavily_search' });
+    expect(eff).toBe('mcp:tavily_search');
+    expect(resolveToolConfig('mcp', { tool: 'tavily_search' }, config).mode).toBe('lines');
+
+    // mcp 専用引数名の呼び出しは mcp キーにフォールバックする
+    expect(getEffectiveToolName('mcp', { connect: 'srv' })).toBe('mcp');
+    expect(resolveToolConfig('mcp', { connect: 'srv' }, config).mode).toBe('count_only');
+  });
+
+  it('should resolve tool config via the sub-tool name pattern', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       'mcp:tavily_tavily_search': { mode: 'lines', outputLines: 0, noPadding: true },
@@ -204,14 +224,14 @@ describe('resolveToolConfig', () => {
 
     const config = loadConfig('/valid/path.json');
     
-    // MCP proxy tool call: toolName="mcp", args.tool="tavily_tavily_search"
+    // MCP gateway call: toolName="mcp", args.tool="tavily_tavily_search"
     const result = resolveToolConfig('mcp', { tool: 'tavily_tavily_search', args: '{}' }, config);
     expect(result.mode).toBe('lines');
     expect(result.outputLines).toBe(0);
     expect(result.noPadding).toBe(true);
   });
 
-  it('should fall back to default for mcp:status when not configured', () => {
+  it('should fall back to default when no specific key is configured', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       'mcp:tavily_tavily_search': { mode: 'lines' },
@@ -220,12 +240,12 @@ describe('resolveToolConfig', () => {
 
     const config = loadConfig('/valid/path.json');
     
-    // MCP status action: no specific config
+    // 非 gateway の引数: mcp キーも無いので default へ
     const result = resolveToolConfig('mcp', { other: 'args' }, config);
     expect(result.mode).toBe('count_only'); // falls back to default
   });
 
-  it('should resolve mcp direct tool (without proxy) via mcp:toolname', () => {
+  it('should resolve mcp tool config from the mcp:toolname key', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       'mcp:my_tool': { mode: 'lines' },

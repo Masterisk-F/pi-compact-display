@@ -121,8 +121,7 @@ The configuration is in JSON format, where the key is the "tool name" and the va
   },
   
   "mcp:tavily_tavily_search": { "mode": "count_only" },
-  "mcp:list": { "mode": "lines", "outputLines": 10 },
-  "mcp": { "mode": "default" },
+  "mcp": { "mode": "lines", "outputLines": 10 },
   "default": { "mode": "count_only" },
 
   "my_custom_tool": {
@@ -135,17 +134,23 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 
 ### Sub-tool and Action-Specific Configuration (Gateway Tools like MCP)
 
-For "gateway tools" that call other tools or actions internally (such as the `mcp` tool), you can configure them specifically based on their arguments (like `tool` or `action`).
+For "gateway tools" that call other tools or actions internally (such as the `mcp` tool), you can configure them specifically based on their arguments.
 
 The configuration priority is evaluated in a cascading fallback:
 **Specific Sub-tool Configuration > General Tool Configuration > `default` Key Configuration > System Default**.
 This mechanism applies to all tools, not just MCP.
 
-**Example for MCP tools:**
-- **`mcp:<tool_name>`**: When a specific MCP tool is called (e.g., `"mcp:tavily_tavily_search": { "mode": "count_only" }`).
-- **`mcp:list`**: When listing available tools on a server (e.g., `"mcp:list": { "mode": "lines", "outputLines": 10 }`).
-- **`mcp:connect`**: When connecting to a server.
-- **`mcp`**: The general fallback for MCP calls that don't match any specific configuration.
+**How the sub-tool name is derived (the same rule for every tool):**
+- If the argument `tool` is a string → `<tool_name>:<value>` (e.g. `mcp:tavily_search` when called with `{ "tool": "tavily_search" }`)
+- If the argument `action` is a string → `<tool_name>:<value>` (e.g. `mcp:install`)
+- **No tool-specific argument names are evaluated.** `mcp` has no special case: a call that only carries its own argument names (e.g. `{ "server": "..." }`, `{ "connect": "..." }`) falls back to the general `mcp` key.
+
+**Server proxy names (namespace proxies):**
+Depending on how your MCP servers are exposed, the tool name itself may already be namespaced. Those names are also usable as configuration keys:
+- `mcp__<server_name>` (e.g. `mcp__tavily`, or `mcp__playwright_mcp_chrome` for a server named `playwright-mcp-chrome`)
+- `mcp__<server_name>:<tool_name>` (e.g. `mcp__tavily:tavily_search`)
+
+The `count_only` summary line displays exactly this name, so you can copy it straight into the configuration as a key.
 
 *Note: The same priority (`specific setting > "default" setting`) applies to built-in tools like `read` and `bash` as well.*
 

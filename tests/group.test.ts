@@ -340,8 +340,8 @@ describe('GroupContent', () => {
 		const gc = new GroupContent(m1, config, theme);
 		const text = gc.render(60).join('\n');
 		expect(text).toContain('⚡ mcp:read ×2');
-		expect(text).toContain('<toolTitle>mcp:read { path: /etc/hostname }</toolTitle>');
-		expect(text).toContain('<toolTitle>mcp:read { path: /etc/hosts }</toolTitle>');
+		// コール行も mcp 固有の引数プレビューを持たず、ヘッダーと同一のベース名になる
+		expect(text).toContain('<toolTitle>mcp:read</toolTitle>');
 	});
 
 	it('should apply each member\'s own noPadding to its output lines when expanded (Q6)', () => {

@@ -109,29 +109,22 @@ describe('formatCallLine', () => {
     expect(formatCallLine('edit', { path: '/tmp/foo.txt' })).toBe('edit /tmp/foo.txt');
   });
 
-  it('should format mcp call with parsed JSON args (base name via getEffectiveToolName)', () => {
+  it('should format mcp call with the same generic rule as any other tool', () => {
+    // mcp 固有の引数プレビュー ({ path: ... } など) は持たない = 他のツールと同じ規則
     const res = formatCallLine('mcp', {
       tool: 'read',
       args: JSON.stringify({ path: '/etc/hostname' }),
     });
-    expect(res).toBe('mcp:read { path: /etc/hostname }');
-  });
-
-  it('should truncate long values in mcp args', () => {
-    const long = 'y'.repeat(40);
-    const res = formatCallLine('mcp', {
-      tool: 'write',
-      args: JSON.stringify({ content: long }),
-    });
-    expect(res).toContain('mcp:write');
-    expect(res).toContain('content: ' + 'y'.repeat(27) + '...');
+    expect(res).toBe('mcp:read');
   });
 
   it('should handle mcp with action only', () => {
+    // 汎用規則 (args.action) の結果で、mcp 固有の分岐ではない
     expect(formatCallLine('mcp', { action: 'list' })).toBe('mcp:list');
   });
 
   it('should handle mcp with invalid JSON args gracefully', () => {
+    // 引数を一切パースしない = 汎用規則で接尾辞のみ決まる
     const res = formatCallLine('mcp', { tool: 'status', args: '{not valid json' });
     expect(res).toBe('mcp:status');
   });
@@ -143,7 +136,7 @@ describe('formatCallLine', () => {
 
   it('should handle null/undefined args', () => {
     expect(formatCallLine('bash', null)).toBe('$ ');
-    expect(formatCallLine('mcp', undefined)).toBe('mcp:status');
+    expect(formatCallLine('mcp', undefined)).toBe('mcp');
   });
 });
 

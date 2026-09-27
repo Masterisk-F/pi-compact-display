@@ -21,7 +21,7 @@ export function formatOutput(input: string, config: ToolConfig, expanded: boolea
 
 /**
  * ツール呼び出しの1行表示 (グループカードのコール行・ツールのコール行表示で共用)。
- * tools.ts の renderCall と index.ts の mcp 整形ロジックを抽出したもの。
+ * tools.ts の renderCall から抽出したもの。mcp も他のツールと同じ規則で整形する。
  */
 export function formatCallLine(toolName: string, args: any): string {
   args = args ?? {};
@@ -42,33 +42,6 @@ export function formatCallLine(toolName: string, args: any): string {
   if (toolName === 'edit') {
     const path = typeof args.path === 'string' ? args.path : '...';
     return `edit ${path}`;
-  }
-
-  if (toolName === 'mcp') {
-    // ベース名は getEffectiveToolName に統一 (例: mcp:read)。グループヘッダーと
-    // コール行の表示が食い違わないようにするために独自の 'mcp call <tool>' は使わない。
-    const base = getEffectiveToolName(toolName, args);
-    // Parse args.args (JSON string) for display
-    let actualArgs: Record<string, unknown> = {};
-    if (typeof args.args === 'string') {
-      try {
-        actualArgs = JSON.parse(args.args);
-      } catch {
-        actualArgs = {};
-      }
-    }
-    const keys = Object.keys(actualArgs);
-    let argsStr = '';
-    if (keys.length > 0) {
-      const parts = keys.map((k: string) => {
-        const v = actualArgs[k];
-        const vStr = typeof v === 'object' ? JSON.stringify(v) : String(v);
-        const truncatedV = vStr.length > 30 ? vStr.slice(0, 27) + '...' : vStr;
-        return `${k}: ${truncatedV}`;
-      });
-      argsStr = ` { ${parts.join(', ')} }`;
-    }
-    return `${base}${argsStr}`;
   }
 
   return getEffectiveToolName(toolName, args);
