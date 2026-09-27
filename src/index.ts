@@ -212,7 +212,7 @@ export default function (pi: ExtensionAPI) {
 			return (result: any, options: any, theme: any, context: any) => {
 				if (options.isPartial) return ZERO;
 				const toolName = (this as any).toolName;
-				const rawText = resolveResultText(toolName, (this as any).args, result);
+				const rawText = resolveResultText(toolName, (this as any).args, { ...result, isError: context?.isError });
 				const formattedText = formatOutput(rawText, toolConfig, !!options.expanded);
 				if (!formattedText) return ZERO;
 				const coloredText = colorizeResult(toolName, formattedText, theme);

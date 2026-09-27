@@ -16,9 +16,9 @@ import {
 	createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { ZERO, wrapWithBox } from "./uiUtils";
+import { wrapWithBox } from "./uiUtils";
 import { Config, resolveToolConfig } from "./config";
-import { formatCallLine, resolveResultText } from "./renderUtils";
+import { formatCallLine } from "./renderUtils";
 
 // ── Tool cache ──
 const toolCache = new Map<string, ReturnType<typeof createBuiltInTools>>();
@@ -88,14 +88,6 @@ export function registerCustomTools(pi: ExtensionAPI, config: Config) {
 		renderCall(args, theme, context) {
 			return wrapWithBox(new Text(formatCallLine("bash", args), 0, 0), theme, context);
 		},
-		renderResult(_result, { expanded, isPartial }, theme, context) {
-			if (isPartial) return ZERO;
-			if (!expanded) return ZERO;
-			const text = resolveResultText("bash", context?.args, _result);
-			// 展開時は全文を表示する (grouping 時と上限を揃えるため、ハードコードされた上限は持たない)
-			const out = text.split("\n").map((l: string) => theme.fg("toolOutput", l)).join("\n");
-			return wrapWithBox(new Text(out, 0, 0), theme, context);
-		},
 	});
 
 	// Read
@@ -117,15 +109,6 @@ export function registerCustomTools(pi: ExtensionAPI, config: Config) {
 		renderCall(args, theme, context) {
 			return wrapWithBox(new Text(formatCallLine("write", args), 0, 0), theme, context);
 		},
-		renderResult(_result, { expanded, isPartial }, theme, context) {
-			if (isPartial) return ZERO;
-			if (!context?.isError) return ZERO; // Hide on success
-			const text = resolveResultText("write", context?.args, { ..._result, isError: context?.isError });
-			if (!expanded) {
-				return wrapWithBox(new Text(theme.fg("error", "error"), 0, 0), theme, context);
-			}
-			return wrapWithBox(new Text(theme.fg("error", text), 0, 0), theme, context);
-		},
 	});
 
 	// Edit
@@ -136,15 +119,6 @@ export function registerCustomTools(pi: ExtensionAPI, config: Config) {
 			return getTools(ctx.cwd).edit.execute(toolCallId, params as any, signal, onUpdate);
 		},
 		renderCall(args, theme, context) { return wrapWithBox(new Text(formatCallLine("edit", args), 0, 0), theme, context); },
-		renderResult(_result, { expanded, isPartial }, theme, context) {
-			if (isPartial) return ZERO;
-			if (!context?.isError) return ZERO; // 成功時の diff 表示は系統 A が担う
-			const text = resolveResultText("edit", context?.args, { ..._result, isError: context?.isError });
-			if (!expanded) {
-				return wrapWithBox(new Text(theme.fg("error", "error"), 0, 0), theme, context);
-			}
-			return wrapWithBox(new Text(theme.fg("error", text), 0, 0), theme, context);
-		},
 	});
 
 	// Ls

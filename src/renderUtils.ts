@@ -87,7 +87,7 @@ export function resolveResultText(toolName: string, args: any, result: any): str
   // write の書き込み内容 (成功時のみ。エラー時は content にエラー文が入っている)
   if (toolName === "write" && !result?.isError) {
     const c = args?.content;
-    if (typeof c === "string" && c) return c;
+    if (typeof c === "string") return c;
   }
 
   // 既定: content の全 text ブロックを改行で連結する

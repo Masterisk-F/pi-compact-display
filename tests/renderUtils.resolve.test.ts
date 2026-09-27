@@ -57,6 +57,16 @@ describe('resolveResultText (L1, L2, L3)', () => {
 		expect(out).toBe('EISDIR: illegal operation on a directory');
 	});
 
+	it('should return empty string for write when args.content is empty string (I3)', () => {
+		const args = { path: 'out.txt', content: '' };
+		const result = {
+			content: [{ type: 'text', text: 'Successfully wrote 0 bytes to out.txt' }],
+			details: undefined,
+		};
+		const out = resolveResultText('write', args, result);
+		expect(out).toBe('');
+	});
+
 	it('should fall back to content for write when args.content is missing (S2)', () => {
 		const result = {
 			content: [{ type: 'text', text: 'Successfully wrote 0 bytes' }],
