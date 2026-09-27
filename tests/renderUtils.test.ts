@@ -88,11 +88,9 @@ describe('formatCallLine', () => {
     expect(formatCallLine('bash', { command: 'ls -la' })).toBe('$ ls -la');
   });
 
-  it('should truncate long bash command to 80 chars', () => {
+  it('should not truncate long bash command (full command is displayed)', () => {
     const cmd = 'x'.repeat(100);
-    const res = formatCallLine('bash', { command: cmd });
-    expect(res).toBe('$ ' + 'x'.repeat(77) + '...');
-    expect(res.length).toBe(82); // 2 + 77 + 3
+    expect(formatCallLine('bash', { command: cmd })).toBe('$ ' + cmd);
   });
 
   it('should handle bash without command', () => {

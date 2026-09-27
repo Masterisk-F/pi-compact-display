@@ -28,8 +28,9 @@ export function formatCallLine(toolName: string, args: any): string {
 
   if (toolName === 'bash') {
     const cmd = typeof args.command === 'string' ? args.command : '';
-    const truncated = cmd.length > 80 ? cmd.slice(0, 77) + '...' : cmd;
-    return `$ ${truncated}`;
+    // 切り詰めない: Text コンポーネントが端末幅で折り返すため、長いコマンドでも
+    // 末尾 (実行内容そのもの) が失われない。ホストの formatBashCall と同じ方針。
+    return `$ ${cmd}`;
   }
 
   if (toolName === 'write') {
