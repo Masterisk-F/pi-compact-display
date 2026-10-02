@@ -88,11 +88,14 @@ describe('formatCallLine', () => {
     expect(formatCallLine('bash', { command: 'ls -la' })).toBe('$ ls -la');
   });
 
-  it('should truncate long bash command to 80 chars', () => {
+  it('should not truncate long bash command (full command is displayed)', () => {
     const cmd = 'x'.repeat(100);
-    const res = formatCallLine('bash', { command: cmd });
-    expect(res).toBe('$ ' + 'x'.repeat(77) + '...');
-    expect(res.length).toBe(82); // 2 + 77 + 3
+    expect(formatCallLine('bash', { command: cmd })).toBe('$ ' + cmd);
+  });
+
+  it('should strip ANSI and OSC escape sequences from the call line', () => {
+    const maliciousCmd = 'echo \x1b]0;EVIL\x07hello \x1b[31mworld\x1b[0m';
+    expect(formatCallLine('bash', { command: maliciousCmd })).toBe('$ echo hello world');
   });
 
   it('should handle bash without command', () => {
@@ -111,41 +114,69 @@ describe('formatCallLine', () => {
     expect(formatCallLine('edit', { path: '/tmp/foo.txt' })).toBe('edit /tmp/foo.txt');
   });
 
-  it('should format mcp call with parsed JSON args (base name via getEffectiveToolName)', () => {
+  it('should format read with path and optional line ranges', () => {
+    expect(formatCallLine('read', { path: '/tmp/foo.txt' })).toBe('read /tmp/foo.txt');
+    expect(formatCallLine('read', { path: '/tmp/foo.txt', offset: 10, limit: 50 })).toBe('read /tmp/foo.txt:10-59');
+    expect(formatCallLine('read', { path: '/tmp/foo.txt', offset: 10 })).toBe('read /tmp/foo.txt:10');
+    expect(formatCallLine('read', { path: '/tmp/foo.txt', limit: 20 })).toBe('read /tmp/foo.txt:1-20');
+    expect(formatCallLine('read', { file_path: '/tmp/bar.txt' })).toBe('read /tmp/bar.txt');
+    expect(formatCallLine('read', {})).toBe('read ...');
+  });
+
+  it('should format ls with path and optional limit', () => {
+    expect(formatCallLine('ls', { path: 'src', limit: 50 })).toBe('ls src (limit 50)');
+    expect(formatCallLine('ls', {})).toBe('ls .');
+  });
+
+  it('should format find with pattern, path, and optional limit', () => {
+    expect(formatCallLine('find', { pattern: '**/*.ts', path: 'src' })).toBe('find **/*.ts in src');
+    expect(formatCallLine('find', { pattern: '**/*.ts', limit: 10 })).toBe('find **/*.ts in . (limit 10)');
+    expect(formatCallLine('find', {})).toBe('find  in .');
+  });
+
+  it('should format grep with pattern, path, optional glob, and limit', () => {
+    expect(formatCallLine('grep', { pattern: 'TODO', path: 'src', glob: '*.ts' })).toBe('grep /TODO/ in src (*.ts)');
+    expect(formatCallLine('grep', { pattern: 'TODO', limit: 5 })).toBe('grep /TODO/ in . (limit 5)');
+    expect(formatCallLine('grep', {})).toBe('grep // in .');
+  });
+
+  it('should format mcp call with raw arguments preserved', () => {
     const res = formatCallLine('mcp', {
       tool: 'read',
       args: JSON.stringify({ path: '/etc/hostname' }),
     });
-    expect(res).toBe('mcp:read { path: /etc/hostname }');
+    expect(res).toBe('mcp:read { tool: read, args: {"path":"/etc/hostname"} }');
   });
 
-  it('should truncate long values in mcp args', () => {
+  it('should truncate long values in arguments to 30 chars', () => {
     const long = 'y'.repeat(40);
     const res = formatCallLine('mcp', {
       tool: 'write',
-      args: JSON.stringify({ content: long }),
+      args: long,
     });
     expect(res).toContain('mcp:write');
-    expect(res).toContain('content: ' + 'y'.repeat(27) + '...');
+    expect(res).toContain('args: ' + 'y'.repeat(27) + '...');
   });
 
   it('should handle mcp with action only', () => {
-    expect(formatCallLine('mcp', { action: 'list' })).toBe('mcp:list');
+    expect(formatCallLine('mcp', { action: 'list' })).toBe('mcp:list { action: list }');
   });
 
   it('should handle mcp with invalid JSON args gracefully', () => {
     const res = formatCallLine('mcp', { tool: 'status', args: '{not valid json' });
-    expect(res).toBe('mcp:status');
+    expect(res).toBe('mcp:status { tool: status, args: {not valid json }');
   });
 
-  it('should fall back to effective tool name for unknown tools', () => {
-    expect(formatCallLine('read', { path: '/tmp/x' })).toBe('read');
-    expect(formatCallLine('search', { query: 'foo' })).toBe('search');
+  it('should format extension tools with arguments preview', () => {
+    expect(formatCallLine('worktree_create', { branch: 'fix/x' })).toBe('worktree_create { branch: fix/x }');
+    expect(formatCallLine('search', { query: 'foo' })).toBe('search { query: foo }');
+    expect(formatCallLine('custom', {})).toBe('custom');
   });
 
-  it('should handle null/undefined args', () => {
+  it('should handle null/undefined and primitive args', () => {
     expect(formatCallLine('bash', null)).toBe('$ ');
-    expect(formatCallLine('mcp', undefined)).toBe('mcp:status');
+    expect(formatCallLine('mcp', undefined)).toBe('mcp');
+    expect(formatCallLine('mcp', 'not-an-object')).toBe('mcp');
   });
 });
 

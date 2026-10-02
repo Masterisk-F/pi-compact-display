@@ -62,21 +62,11 @@ export function loadConfig(configPath: string): Config {
 export function getEffectiveToolName(toolName: string, args: any): string {
   if (!args || typeof args !== 'object') return toolName;
 
-  // General fallback for gateway tools that use "tool" or "action" arguments
-  if (toolName !== 'mcp') {
-    if (args.tool && typeof args.tool === 'string') return `${toolName}:${args.tool}`;
-    if (args.action && typeof args.action === 'string') return `${toolName}:${args.action}`;
-    return toolName;
-  }
-
-  // Specific parsing for mcp
-  if (args.action) return `mcp:${args.action}`;
-  if (args.tool) return `mcp:${args.tool}`;
-  if (args.connect) return `mcp:connect`;
-  if (args.describe) return `mcp:describe`;
-  if (args.search) return `mcp:search`;
-  if (args.server) return `mcp:list`;
-  return `mcp:status`;
+  // ゲートウェイ型ツールは tool / action 引数の値でサブツール名を決める。
+  // ツール固有の引数名 (server / connect / describe 等) は評価しない。
+  if (args.tool && typeof args.tool === 'string') return `${toolName}:${args.tool}`;
+  if (args.action && typeof args.action === 'string') return `${toolName}:${args.action}`;
+  return toolName;
 }
 
 export function resolveToolConfig(toolName: string, args: any, config: Config): ToolConfig {

@@ -340,8 +340,9 @@ describe('GroupContent', () => {
 		const gc = new GroupContent(m1, config, theme);
 		const text = gc.render(60).join('\n');
 		expect(text).toContain('⚡ mcp:read ×2');
-		expect(text).toContain('<toolTitle>mcp:read { path: /etc/hostname }</toolTitle>');
-		expect(text).toContain('<toolTitle>mcp:read { path: /etc/hosts }</toolTitle>');
+		expect(text).toContain('mcp:read { tool: read, args:');
+		expect(text).toContain('{"path":"/etc/hostname"}');
+		expect(text).toContain('{"path":"/etc/hosts"}');
 	});
 
 	it('should apply each member\'s own noPadding to its output lines when expanded (Q6)', () => {

@@ -121,8 +121,8 @@ pi install .
   },
   
   "mcp:tavily_tavily_search": { "mode": "count_only" },
-  "mcp:list": { "mode": "lines", "outputLines": 10 },
-  "mcp": { "mode": "default" },
+  "mcp__tavily:tavily_search": { "mode": "lines", "outputLines": 5 },
+  "mcp": { "mode": "lines", "outputLines": 10 },
   "default": { "mode": "count_only" },
 
   "my_custom_tool": {
@@ -135,15 +135,22 @@ pi install .
 
 ### サブツール・アクションごとの個別設定（MCPツールなど）
 
-`mcp` ツールのような、内部でさらに別のツールやアクションを呼び出す「ゲートウェイ型のツール」については、引数（`tool` や `action` 等）に応じた個別設定が可能です。
+`mcp` ツールのような、内部でさらに別のツールやアクションを呼び出す「ゲートウェイ型のツール」については、引数に応じた個別設定が可能です。
 
 設定の優先順位は、**「サブツールの個別設定 ＞ ツール全体の設定 ＞ `default` キーの設定 ＞ システム標準」** のカスケード（段階的フォールバック）となっており、これはMCPに限らずすべてのツールに共通の仕組みです。
 
-**MCPツールの設定例:**
-- **`mcp:ツール名`**: 特定のMCPツールを実行した場合（例: `"mcp:tavily_tavily_search": { "mode": "count_only" }`）
-- **`mcp:list`**: サーバーのツール一覧を取得した場合（例: `"mcp:list": { "mode": "lines", "outputLines": 10 }`）
-- **`mcp:connect`**: サーバーに接続した場合
-- **`mcp`**: 上記以外のMCP呼び出し、または個別設定がない場合のMCP全体のフォールバック設定
+**サブツール名の決定方法（すべてのツールに同一の規則）:**
+- 引数 `tool` が文字列なら → `<ツール名>:<値>`（例: `{ "tool": "tavily_search" }` で呼び出すと `mcp:tavily_search`）
+- 引数 `action` が文字列なら → `<ツール名>:<値>`（例: `mcp:install`）
+- **ツール固有の引数名（`server` / `connect` など）は評価しません。** `mcp` にも専用分岐はなく、これらの引数しか持たない呼び出しは一般的な `mcp` キーにフォールバックします。
+
+**サーバー別プロキシ名（名前空間プロキシ）:**
+MCP サーバーの公開方法によっては、ツール名そのものが名前空間付きになることがあります。この名前もそのまま設定キーとして使えます。
+- `mcp__<サーバー名>`（例: `mcp__tavily`、サーバー名 `playwright-mcp-chrome` なら `mcp__playwright_mcp_chrome`）
+- `mcp__<サーバー名>:<ツール名>`（例: `mcp__tavily:tavily_search`）
+
+`count_only` の集計行にはこの名前がそのまま表示されるため、そのまま設定キーにコピーできます。
+`lines` モードでは、コール行に `<実効名> { <引数> }`（例: `mcp__tavily:tavily_search { query: "Node.js 22" }`）と表示され、設定キーとして使う実効名と一致します。
 
 *※この優先順位（個別設定 ＞ `default` 設定）は標準ツール（例: `read`、`bash`）に対しても同じように適用されます。*
 
