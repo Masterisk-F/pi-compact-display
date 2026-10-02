@@ -121,6 +121,7 @@ pi install .
   },
   
   "mcp:tavily_tavily_search": { "mode": "count_only" },
+  "mcp__tavily:tavily_search": { "mode": "lines", "outputLines": 5 },
   "mcp": { "mode": "lines", "outputLines": 10 },
   "default": { "mode": "count_only" },
 
@@ -149,6 +150,7 @@ MCP サーバーの公開方法によっては、ツール名そのものが名�
 - `mcp__<サーバー名>:<ツール名>`（例: `mcp__tavily:tavily_search`）
 
 `count_only` の集計行にはこの名前がそのまま表示されるため、そのまま設定キーにコピーできます。
+`lines` モードでは、コール行に `<実効名> { <引数> }`（例: `mcp__tavily:tavily_search { query: "Node.js 22" }`）と表示され、設定キーとして使う実効名と一致します。
 
 *※この優先順位（個別設定 ＞ `default` 設定）は標準ツール（例: `read`、`bash`）に対しても同じように適用されます。*
 

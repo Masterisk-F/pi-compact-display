@@ -257,4 +257,47 @@ describe('resolveToolConfig', () => {
     const result = resolveToolConfig('mcp', { tool: 'my_tool' }, config);
     expect(result.mode).toBe('lines');
   });
+
+  it('should resolve namespaced proxy tool config via mcp__<server>:<tool> and mcp__<server> (Q4)', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      'mcp__tavily:tavily_search': { mode: 'lines', outputLines: 5 },
+      'mcp__tavily': { mode: 'count_only' },
+      default: { mode: 'default' }
+    }));
+
+    const config = loadConfig('/valid/path.json');
+
+    // 1. Tool call with tool argument: toolName="mcp__tavily", args.tool="tavily_search"
+    const effWithTool = getEffectiveToolName('mcp__tavily', { tool: 'tavily_search' });
+    expect(effWithTool).toBe('mcp__tavily:tavily_search');
+    const resultWithTool = resolveToolConfig('mcp__tavily', { tool: 'tavily_search' }, config);
+    expect(resultWithTool.mode).toBe('lines');
+    expect(resultWithTool.outputLines).toBe(5);
+
+    // 2. Tool call falling back to server proxy: toolName="mcp__tavily", unconfigured sub-tool
+    const effFallback = getEffectiveToolName('mcp__tavily', { tool: 'other_tool' });
+    expect(effFallback).toBe('mcp__tavily:other_tool');
+    const resultFallback = resolveToolConfig('mcp__tavily', { tool: 'other_tool' }, config);
+    expect(resultFallback.mode).toBe('count_only'); // falls back to mcp__tavily
+  });
+
+  it('should ignore retired mcp sub-tool keys and fall back to the general mcp key (Q3)', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      'mcp:connect': { mode: 'lines' },
+      'mcp:describe': { mode: 'lines' },
+      mcp: { mode: 'count_only' },
+    }));
+
+    const config = loadConfig('/valid/path.json');
+
+    // args.connect no longer produces mcp:connect, so effectiveName is 'mcp'
+    expect(getEffectiveToolName('mcp', { connect: 'server' })).toBe('mcp');
+    expect(resolveToolConfig('mcp', { connect: 'server' }, config).mode).toBe('count_only');
+
+    // args.describe no longer produces mcp:describe, so effectiveName is 'mcp'
+    expect(getEffectiveToolName('mcp', { describe: 'tool' })).toBe('mcp');
+    expect(resolveToolConfig('mcp', { describe: 'tool' }, config).mode).toBe('count_only');
+  });
 });

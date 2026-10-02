@@ -121,6 +121,7 @@ The configuration is in JSON format, where the key is the "tool name" and the va
   },
   
   "mcp:tavily_tavily_search": { "mode": "count_only" },
+  "mcp__tavily:tavily_search": { "mode": "lines", "outputLines": 5 },
   "mcp": { "mode": "lines", "outputLines": 10 },
   "default": { "mode": "count_only" },
 
@@ -151,6 +152,7 @@ Depending on how your MCP servers are exposed, the tool name itself may already 
 - `mcp__<server_name>:<tool_name>` (e.g. `mcp__tavily:tavily_search`)
 
 The `count_only` summary line displays exactly this name, so you can copy it straight into the configuration as a key.
+In `lines` mode, the call line displays the invocation as `<effective_name> { <arguments> }` (e.g. `mcp__tavily:tavily_search { query: "Node.js 22" }`), matching the effective name used for configuration.
 
 *Note: The same priority (`specific setting > "default" setting`) applies to built-in tools like `read` and `bash` as well.*
 
