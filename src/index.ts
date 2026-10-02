@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text, Container } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
-import { formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
+import { formatCallLine, formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
 import { isSpacer, isUserMessage, isAssistantMessage, isSkillInvocation } from "./componentUtils";
 import { ZERO, wrapWithBox } from "./uiUtils";
@@ -198,16 +198,11 @@ export default function (pi: ExtensionAPI) {
 			return () => ZERO;
 		} else if (toolConfig.mode === 'lines') {
 			return (args: any, theme: any, context: any) => {
-				// @ts-ignore
-				const effectiveName = getEffectiveToolName((this as any).toolName, args);
-				// If the original renderer exists, use it (e.g. bash, edit have their own concise renderers)
-				const origRenderer = originalGetCallRenderer.call(this);
-				if (origRenderer) {
-					return origRenderer(args, theme, context);
-				}
-				// Fallback to a single-line bold title
 				const bold = typeof theme.bold === 'function' ? theme.bold : (s: string) => s;
-				return wrapWithBox(new Text(theme.fg("toolTitle", bold(effectiveName)), 0, 0), theme, context, toolConfig);
+				return wrapWithBox(
+					new Text(theme.fg("toolTitle", bold(formatCallLine((this as any).toolName, args))), 0, 0),
+					theme, context, toolConfig,
+				);
 			};
 		}
 		return originalGetCallRenderer.call(this);

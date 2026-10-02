@@ -19,28 +19,84 @@ export function formatOutput(input: string, config: ToolConfig, expanded: boolea
   return lines.join('\n');
 }
 
+/** 引数 1 つの表示上限。長い値でも「どの呼び出しか」は判別できる長さに留める。 */
+const PREVIEW_VALUE_MAX = 30;
+
+function previewValue(v: unknown): string {
+  const s = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+  return s.length > PREVIEW_VALUE_MAX ? s.slice(0, PREVIEW_VALUE_MAX - 3) + '...' : s;
+}
+
+/** 組み込み以外のツールのコール行末尾。受け取った引数をそのまま並べるだけ。 */
+function formatArgPreview(args: Record<string, unknown>): string {
+  const keys = Object.keys(args);
+  if (keys.length === 0) return '';
+  return ` { ${keys.map(k => `${k}: ${previewValue(args[k])}`).join(', ')} }`;
+}
+
+/** 文字列引数の取り出し。欠落・空文字は呼び出し側が指定した表示に落ちる。 */
+function str(v: unknown, fallback: string): string {
+  return typeof v === 'string' && v !== '' ? v : fallback;
+}
+
 /**
  * ツール呼び出しの1行表示 (グループカードのコール行・ツールのコール行表示で共用)。
  * tools.ts の renderCall から抽出したもの。mcp も他のツールと同じ規則で整形する。
  */
 export function formatCallLine(toolName: string, args: any): string {
-  args = args ?? {};
+  // 引数はツール側の定義に依存する (オブジェクト以外もあり得る) ので、まず形を揃える
+  if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
 
+  const limit = (v: unknown) => (typeof v === 'number' ? ` (limit ${v})` : '');
   let line: string;
-  if (toolName === 'bash') {
-    const cmd = typeof args.command === 'string' ? args.command : '';
-    // 切り詰めない: Text コンポーネントが端末幅で折り返すため、長いコマンドでも
-    // 末尾 (実行内容そのもの) が失われない。ホストの formatBashCall と同じ方針。
-    line = `$ ${cmd}`;
-  } else if (toolName === 'write') {
-    const n = typeof args.content === 'string' ? args.content.split('\n').length : 0;
-    const path = typeof args.path === 'string' ? args.path : '...';
-    line = `write ${path}` + (n > 0 ? ` (${n} lines)` : '');
-  } else if (toolName === 'edit') {
-    const path = typeof args.path === 'string' ? args.path : '...';
-    line = `edit ${path}`;
-  } else {
-    line = getEffectiveToolName(toolName, args);
+
+  switch (toolName) {
+    case 'bash':
+      // 切り詰めない: Text コンポーネントが端末幅で折り返すため、長いコマンドでも
+      // 末尾 (実行内容そのもの) が失われない。ホストの formatBashCall と同じ方針。
+      line = `$ ${typeof args.command === 'string' ? args.command : ''}`;
+      break;
+
+    case 'read': {
+      // ホスト formatReadCall / formatReadLineRange と同じ書式:
+      // `read <path>` または `read <path>:<start>[-<end>]`
+      const hasRange = args.offset !== undefined || args.limit !== undefined;
+      const start = typeof args.offset === 'number' ? args.offset : 1;
+      const range = !hasRange
+        ? ''
+        : `:${start}${typeof args.limit === 'number' ? `-${start + args.limit - 1}` : ''}`;
+      line = `read ${str(args.file_path ?? args.path, '...')}${range}`;
+      break;
+    }
+
+    case 'write': {
+      const n = typeof args.content === 'string' ? args.content.split('\n').length : 0;
+      line = `write ${str(args.path, '...')}` + (n > 0 ? ` (${n} lines)` : '');
+      break;
+    }
+
+    case 'edit':
+      line = `edit ${str(args.path, '...')}`;
+      break;
+
+    case 'ls':
+      line = `ls ${str(args.path, '.')}${limit(args.limit)}`;
+      break;
+
+    case 'find':
+      line = `find ${str(args.pattern, '')} in ${str(args.path, '.')}${limit(args.limit)}`;
+      break;
+
+    case 'grep':
+      line = `grep /${str(args.pattern, '')}/ in ${str(args.path, '.')}`;
+      if (str(args.glob, '') !== '') line += ` (${args.glob})`;
+      line += limit(args.limit);
+      break;
+
+    default:
+      // 組み込み以外のツールは、引数の意味を本拡張が知らない。値の形を推測せず
+      // そのまま並べることで、新しい拡張が登録されてもコード追加が不要になる。
+      line = `${getEffectiveToolName(toolName, args)}${formatArgPreview(args)}`;
   }
 
   return sanitizeToolText(line);
