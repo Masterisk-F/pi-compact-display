@@ -26,25 +26,24 @@ export function formatOutput(input: string, config: ToolConfig, expanded: boolea
 export function formatCallLine(toolName: string, args: any): string {
   args = args ?? {};
 
+  let line: string;
   if (toolName === 'bash') {
     const cmd = typeof args.command === 'string' ? args.command : '';
     // 切り詰めない: Text コンポーネントが端末幅で折り返すため、長いコマンドでも
     // 末尾 (実行内容そのもの) が失われない。ホストの formatBashCall と同じ方針。
-    return `$ ${cmd}`;
-  }
-
-  if (toolName === 'write') {
+    line = `$ ${cmd}`;
+  } else if (toolName === 'write') {
     const n = typeof args.content === 'string' ? args.content.split('\n').length : 0;
     const path = typeof args.path === 'string' ? args.path : '...';
-    return `write ${path}` + (n > 0 ? ` (${n} lines)` : '');
-  }
-
-  if (toolName === 'edit') {
+    line = `write ${path}` + (n > 0 ? ` (${n} lines)` : '');
+  } else if (toolName === 'edit') {
     const path = typeof args.path === 'string' ? args.path : '...';
-    return `edit ${path}`;
+    line = `edit ${path}`;
+  } else {
+    line = getEffectiveToolName(toolName, args);
   }
 
-  return getEffectiveToolName(toolName, args);
+  return sanitizeToolText(line);
 }
 
 /**

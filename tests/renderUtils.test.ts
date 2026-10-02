@@ -93,6 +93,11 @@ describe('formatCallLine', () => {
     expect(formatCallLine('bash', { command: cmd })).toBe('$ ' + cmd);
   });
 
+  it('should strip ANSI and OSC escape sequences from the call line', () => {
+    const maliciousCmd = 'echo \x1b]0;EVIL\x07hello \x1b[31mworld\x1b[0m';
+    expect(formatCallLine('bash', { command: maliciousCmd })).toBe('$ echo hello world');
+  });
+
   it('should handle bash without command', () => {
     expect(formatCallLine('bash', {})).toBe('$ ');
   });
