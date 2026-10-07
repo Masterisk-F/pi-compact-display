@@ -19,58 +19,87 @@ export function formatOutput(input: string, config: ToolConfig, expanded: boolea
   return lines.join('\n');
 }
 
+/** 引数 1 つの表示上限。長い値でも「どの呼び出しか」は判別できる長さに留める。 */
+const PREVIEW_VALUE_MAX = 30;
+
+function previewValue(v: unknown): string {
+  const s = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+  return s.length > PREVIEW_VALUE_MAX ? s.slice(0, PREVIEW_VALUE_MAX - 3) + '...' : s;
+}
+
+/** 組み込み以外のツールのコール行末尾。受け取った引数をそのまま並べるだけ。 */
+function formatArgPreview(args: Record<string, unknown>): string {
+  const keys = Object.keys(args);
+  if (keys.length === 0) return '';
+  return ` { ${keys.map(k => `${k}: ${previewValue(args[k])}`).join(', ')} }`;
+}
+
+/** 文字列引数の取り出し。欠落・空文字は呼び出し側が指定した表示に落ちる。 */
+function str(v: unknown, fallback: string): string {
+  return typeof v === 'string' && v !== '' ? v : fallback;
+}
+
 /**
  * ツール呼び出しの1行表示 (グループカードのコール行・ツールのコール行表示で共用)。
- * tools.ts の renderCall と index.ts の mcp 整形ロジックを抽出したもの。
+ * tools.ts の renderCall から抽出したもの。mcp も他のツールと同じ規則で整形する。
  */
 export function formatCallLine(toolName: string, args: any): string {
-  args = args ?? {};
+  // 引数はツール側の定義に依存する (オブジェクト以外もあり得る) ので、まず形を揃える
+  if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
 
-  if (toolName === 'bash') {
-    const cmd = typeof args.command === 'string' ? args.command : '';
-    const truncated = cmd.length > 80 ? cmd.slice(0, 77) + '...' : cmd;
-    return `$ ${truncated}`;
-  }
+  const limit = (v: unknown) => (typeof v === 'number' ? ` (limit ${v})` : '');
+  let line: string;
 
-  if (toolName === 'write') {
-    const n = typeof args.content === 'string' ? args.content.split('\n').length : 0;
-    const path = typeof args.path === 'string' ? args.path : '...';
-    return `write ${path}` + (n > 0 ? ` (${n} lines)` : '');
-  }
+  switch (toolName) {
+    case 'bash':
+      // 切り詰めない: Text コンポーネントが端末幅で折り返すため、長いコマンドでも
+      // 末尾 (実行内容そのもの) が失われない。ホストの formatBashCall と同じ方針。
+      line = `$ ${typeof args.command === 'string' ? args.command : ''}`;
+      break;
 
-  if (toolName === 'edit') {
-    const path = typeof args.path === 'string' ? args.path : '...';
-    return `edit ${path}`;
-  }
-
-  if (toolName === 'mcp') {
-    // ベース名は getEffectiveToolName に統一 (例: mcp:read)。グループヘッダーと
-    // コール行の表示が食い違わないようにするために独自の 'mcp call <tool>' は使わない。
-    const base = getEffectiveToolName(toolName, args);
-    // Parse args.args (JSON string) for display
-    let actualArgs: Record<string, unknown> = {};
-    if (typeof args.args === 'string') {
-      try {
-        actualArgs = JSON.parse(args.args);
-      } catch {
-        actualArgs = {};
-      }
+    case 'read': {
+      // ホスト formatReadCall / formatReadLineRange と同じ書式:
+      // `read <path>` または `read <path>:<start>[-<end>]`
+      const hasRange = args.offset !== undefined || args.limit !== undefined;
+      const start = typeof args.offset === 'number' ? args.offset : 1;
+      const range = !hasRange
+        ? ''
+        : `:${start}${typeof args.limit === 'number' ? `-${start + args.limit - 1}` : ''}`;
+      line = `read ${str(args.file_path ?? args.path, '...')}${range}`;
+      break;
     }
-    const keys = Object.keys(actualArgs);
-    let argsStr = '';
-    if (keys.length > 0) {
-      const parts = keys.map((k: string) => {
-        const v = actualArgs[k];
-        const vStr = typeof v === 'object' ? JSON.stringify(v) : String(v);
-        const truncatedV = vStr.length > 30 ? vStr.slice(0, 27) + '...' : vStr;
-        return `${k}: ${truncatedV}`;
-      });
-      argsStr = ` { ${parts.join(', ')} }`;
+
+    case 'write': {
+      const n = typeof args.content === 'string' ? args.content.split('\n').length : 0;
+      line = `write ${str(args.path, '...')}` + (n > 0 ? ` (${n} lines)` : '');
+      break;
     }
-    return `${base}${argsStr}`;
+
+    case 'edit':
+      line = `edit ${str(args.path, '...')}`;
+      break;
+
+    case 'ls':
+      line = `ls ${str(args.path, '.')}${limit(args.limit)}`;
+      break;
+
+    case 'find':
+      line = `find ${str(args.pattern, '')} in ${str(args.path, '.')}${limit(args.limit)}`;
+      break;
+
+    case 'grep':
+      line = `grep /${str(args.pattern, '')}/ in ${str(args.path, '.')}`;
+      if (str(args.glob, '') !== '') line += ` (${args.glob})`;
+      line += limit(args.limit);
+      break;
+
+    default:
+      // 組み込み以外のツールは、引数の意味を本拡張が知らない。値の形を推測せず
+      // そのまま並べることで、新しい拡張が登録されてもコード追加が不要になる。
+      line = `${getEffectiveToolName(toolName, args)}${formatArgPreview(args)}`;
   }
 
-  return getEffectiveToolName(toolName, args);
+  return sanitizeToolText(line);
 }
 
 /**
