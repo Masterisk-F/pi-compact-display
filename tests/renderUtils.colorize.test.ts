@@ -24,9 +24,11 @@ describe('colorizeResult (diff coloring for edit)', () => {
 		expect(removeColor).toBeDefined();
 		expect(addColor).toBeDefined();
 		expect(removeColor).not.toBe(addColor);
-		// Pi 標準 dark テーマ: 削除 = 赤 (204;102;102), 追加 = 緑 (181;189;104)
-		expect(removeColor).toBe('204;102;102');
-		expect(addColor).toBe('181;189;104');
+		// 具体的な RGB 値はテーマ定義 (dark.json) に依存し、Pi 1.0 で hex から okhsl 表記へ
+		// 変わったため版ごとに異なる。ここでは「トークンごとに別の色が当たっている」ことだけを検証する。
+		const contextColorS1 = lines[0].match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
+		expect(removeColor).not.toBe(contextColorS1);
+		expect(addColor).not.toBe(contextColorS1);
 	});
 
 	it('should colorize context lines with context color for edit tool (S2)', () => {
@@ -34,7 +36,9 @@ describe('colorizeResult (diff coloring for edit)', () => {
 		const out = colorizeResult('edit', diff, fakeTheme);
 		const lines = out.split('\n');
 		const contextColor = lines[0].match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
-		expect(contextColor).toBe('128;128;128'); // 灰
+		const removeColor = lines[1].match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
+		expect(contextColor).toBeDefined();
+		expect(contextColor).not.toBe(removeColor); // context は削除行とは別トークン
 	});
 
 	it('should colorize diff with gap lines (...) without crashing (S3)', () => {
@@ -44,8 +48,9 @@ describe('colorizeResult (diff coloring for edit)', () => {
 		expect(lines.length).toBe(7);
 		const removeColor = lines[2].match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
 		const addColor = lines[3].match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
-		expect(removeColor).toBe('204;102;102');
-		expect(addColor).toBe('181;189;104');
+		expect(removeColor).toBeDefined();
+		expect(addColor).toBeDefined();
+		expect(removeColor).not.toBe(addColor);
 	});
 
 	it('should NOT colorize +/- lines for non-edit tools (S4)', () => {

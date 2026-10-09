@@ -1,12 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import { Container } from "@earendil-works/pi-tui";
-import { ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
+import { ToolExecutionComponent, initTheme, createBashToolDefinition, createReadToolDefinition, createEditToolDefinition, createWriteToolDefinition, createFindToolDefinition, createGrepToolDefinition, createLsToolDefinition, } from "@earendil-works/pi-coding-agent";
 import extension from '../src/index';
 import { groupOf } from '../src/group';
 import { loadConfig } from '../src/config';
 
 vi.mock('fs');
+
+// ホスト (interactive-mode) は getRegisteredToolDefinition() 経由で、組み込み renderer を
+// マージ済みの定義 (renderShell: "self" を含む) を ToolExecutionComponent に渡す。
+// ここで undefined を渡すと getRenderShell() が "default" に落ち、本拡張が描画を差し替える
+// self シェルの経路に入らないため、実ホストと同じ経路を再現する。
+const RENDERERS: Record<string, any> = {
+	bash: createBashToolDefinition({}),
+	read: createReadToolDefinition({}),
+	edit: createEditToolDefinition({}),
+	write: createWriteToolDefinition({}),
+	find: createFindToolDefinition({}),
+	grep: createGrepToolDefinition({}),
+	ls: createLsToolDefinition({}),
+};
 
 // 実 ToolExecutionComponent + パッチ済み renderer / addChild ミラーを使った
 // グループ表示の統合テスト。
@@ -27,7 +41,7 @@ describe('Grouping integration (patched renderers)', () => {
 	});
 
 	const makeComponent = (toolName: string, id: string, args: any) =>
-		new ToolExecutionComponent(toolName, id, args, {}, undefined as any, fakeUi as any, process.cwd());
+		new ToolExecutionComponent(toolName, id, args, {}, RENDERERS[toolName], fakeUi as any, process.cwd());
 
 	it('should render consecutive bash calls as one card from the leader (header only)', () => {
 		const c = new Container();
@@ -91,10 +105,12 @@ describe('Grouping integration (patched renderers)', () => {
 
 	it('should clear the tracking marker and not track when addChild throws (Q2)', () => {
 		const origAddChild = Container.prototype.addChild;
+		// ToolExecutionComponent のコンストラクタ自体が addChild を呼ぶため、
+		// 差し替えは検証対象のコンポーネントを生成した後に当てる。
+		const t = makeComponent('bash', '1', { command: 'echo a' });
 		Container.prototype.addChild = () => { throw new Error('boom'); };
 		try {
 			const c = new Container();
-			const t = makeComponent('bash', '1', { command: 'echo a' });
 			expect(() => c.addChild(t)).toThrow('boom');
 			expect((t as any).__piCompactTrackedBy).toBeUndefined();
 
@@ -128,7 +144,9 @@ describe('Grouping integration (patched renderers)', () => {
 			bash: { mode: 'lines' },
 		}));
 		// loadConfig が新しい mock の json を読むようにコンポーネントを生成
-		const tDefault = makeComponent('fakeTool', '1', {});
+		// fakeTool は組み込み定義を持たないため、あえて定義なし (undefined) で生成し、
+		// ホスト側の default シェルにフォールバックすることを直接検証する。
+		const tDefault = new ToolExecutionComponent('fakeTool', '1', {}, {}, undefined as any, fakeUi as any, process.cwd());
 		const tLines = makeComponent('bash', '2', {});
 
 		const c = new Container();
@@ -212,10 +230,12 @@ describe('Grouping integration (patched renderers)', () => {
 		expect(removeLine).toBeDefined();
 		expect(addLine).toBeDefined();
 
-		// - 行 (赤) と + 行 (緑) で ANSI カラーコードが異なること
 		const removeColor = removeLine?.match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
 		const addColor = addLine?.match(/\x1b\[38;2;(\d+;\d+;\d+)m/)?.[1];
-		expect(removeColor).toBe('204;102;102'); // 赤
-		expect(addColor).toBe('181;189;104');    // 緑
+		// 具体的な RGB はテーマ定義 (dark.json) に依存し、Pi 1.0 で hex から okhsl 表記へ
+		// 変わったため版ごとに異なる。ここではトークンごとに別の色が当たることのみ検証する。
+		expect(removeColor).toBeDefined();
+		expect(addColor).toBeDefined();
+		expect(removeColor).not.toBe(addColor);
 	});
 });
