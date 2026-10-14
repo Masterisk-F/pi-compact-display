@@ -1,23 +1,23 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	ToolExecutionComponent,
 	UserMessageComponent,
 	AssistantMessageComponent,
 	SkillInvocationMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Text, Container } from "@earendil-works/pi-tui";
+import { Container } from "@earendil-works/pi-tui";
 import { loadConfig, resolveToolConfig, getEffectiveToolName } from "./config";
-import { formatCallLine, formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
 import { cleanContextMessages } from "./contextUtils";
 import { isSpacer, isUserMessage, isAssistantMessage, isSkillInvocation } from "./componentUtils";
-import { ZERO, wrapWithBox } from "./uiUtils";
 import { SummaryTracker } from "./state";
-import { registerCustomTools } from "./tools";
-import { GroupContent, trackChild, untrackChild, resetChildren } from "./group";
+import { registerToolRenderers } from "./tools";
+import { trackChild, untrackChild, resetChildren } from "./group";
 import path from "path";
 import os from "os";
 
 export default function (pi: ExtensionAPI) {
+	if (typeof pi.registerToolRenderer !== "function") {
+		throw new Error("pi-compact-display requires Pi >=1.0.1 with registerToolRenderer(); please upgrade Pi.");
+	}
 	const configPath = path.join(os.homedir(), ".pi", "agent", "extensions", "pi-compact-display", "config.json");
 	const config = loadConfig(configPath);
 	const tracker = new SummaryTracker();
@@ -179,83 +179,6 @@ export default function (pi: ExtensionAPI) {
 		resetChildren(this);
 	};
 
-	// @ts-ignore
-	const originalGetCallRenderer = ToolExecutionComponent.prototype.getCallRenderer;
-	// @ts-ignore
-	ToolExecutionComponent.prototype.getCallRenderer = function () {
-		// @ts-ignore
-		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
-
-		// Group mode: リーダーがグループ全体を描画する GroupContent を返し、非リーダーは ZERO
-		// (ツール個別設定 grouping:false のツールはグループ化から除外して単独表示)
-		if (config.grouping === true && toolConfig.mode === 'lines' && toolConfig.grouping !== false) {
-			return (args: any, theme: any, context: any) => {
-				return new GroupContent(this as any, config, theme);
-			};
-		}
-
-		if (toolConfig.mode === 'count_only') {
-			return () => ZERO;
-		} else if (toolConfig.mode === 'lines') {
-			return (args: any, theme: any, context: any) => {
-				const bold = typeof theme.bold === 'function' ? theme.bold : (s: string) => s;
-				return wrapWithBox(
-					new Text(theme.fg("toolTitle", bold(formatCallLine((this as any).toolName, args))), 0, 0),
-					theme, context, toolConfig,
-				);
-			};
-		}
-		return originalGetCallRenderer.call(this);
-	};
-
-	// @ts-ignore
-	const originalGetResultRenderer = ToolExecutionComponent.prototype.getResultRenderer;
-	// @ts-ignore
-	ToolExecutionComponent.prototype.getResultRenderer = function () {
-		const origRenderer = originalGetResultRenderer.call(this);
-		// @ts-ignore
-		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
-
-		// Group mode: 結果は GroupContent (call renderer が返す) が描画するので ZERO
-		// (ツール個別設定 grouping:false のツールはグループ化から除外して単独表示)
-		if (config.grouping === true && toolConfig.mode === 'lines' && toolConfig.grouping !== false) {
-			return () => ZERO;
-		}
-
-		if (toolConfig.mode === 'count_only') {
-			return () => ZERO;
-		} else if (toolConfig.mode === 'lines') {
-			return (result: any, options: any, theme: any, context: any) => {
-				if (options.isPartial) return ZERO;
-				const toolName = (this as any).toolName;
-				const rawText = resolveResultText(toolName, (this as any).args, { ...result, isError: context?.isError });
-				const formattedText = formatOutput(rawText, toolConfig, !!options.expanded);
-				if (!formattedText) return ZERO;
-				const coloredText = colorizeResult(toolName, formattedText, theme);
-				return wrapWithBox(new Text(coloredText, 0, 0), theme, context, toolConfig);
-			};
-		}
-		return origRenderer;
-	};
-
-	// @ts-ignore
-	const originalGetRenderShell = ToolExecutionComponent.prototype.getRenderShell;
-	// @ts-ignore
-	ToolExecutionComponent.prototype.getRenderShell = function () {
-		// @ts-ignore
-		const toolConfig = resolveToolConfig((this as any).toolName, (this as any).args, config);
-		if (toolConfig.mode === 'count_only') {
-			return "self";
-		}
-		// Use "self" for lines mode to bypass contentBox padding (wrapWithBox handles padding via config)
-		// (default モードはフォーマット対象外 — 前回の I2 対応で追加された default+format 分岐は
-		// コール行との非対称を生むため取り消し、pi 標準の描画に従わせる)
-		if (toolConfig.mode === 'lines') {
-			return "self";
-		}
-		return originalGetRenderShell.call(this);
-	};
-
 	// ── Count tool calls for count_only tools ──
 	pi.on("tool_call", async (event) => {
 		const args = (event as any).input;
@@ -325,6 +248,5 @@ export default function (pi: ExtensionAPI) {
 		return { messages: cleaned };
 	});
 
-	// ── Register built-in tools ──
-	registerCustomTools(pi, config);
+	registerToolRenderers(pi, config);
 }

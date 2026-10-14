@@ -46,6 +46,11 @@ class TrackedWeakMap<K extends object, V> {
 
 const parentMap = new TrackedWeakMap<object, Container>();
 const childrenMap = new WeakMap<Container, object[]>();
+const ownersByState = new WeakMap<object, object>();
+
+export function getGroupOwner(state: object): object | undefined {
+	return ownersByState.get(state);
+}
 
 /**
  * テスト専用: ミラー状態の内省 (本番コードでは使用しない)。
@@ -56,6 +61,8 @@ export function _mirrorDebug(): { parentMapSize: number } {
 }
 
 export function trackChild(container: Container, comp: object): void {
+	// Renderer callbacks expose row state, not the row; keep the grouping bridge in the existing mirror.
+	if (isToolComp(comp)) ownersByState.set((comp as any).rendererState, comp);
 	// 同一コンテナへの再追加はミラーに重複登録しない。
 	// ホストの Container.addChild は無条件に再 push するため、重複登録すると
 	// グループヘッダーのカウント (⚡ bash ×2 等) が水増しされる。

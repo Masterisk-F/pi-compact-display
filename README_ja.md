@@ -20,6 +20,12 @@ Piアシスタント向けの拡張機能です。アシスタントが各種ツ
 
 ## インストールとビルド
 
+### 互換性
+
+**Pi 1.0.1 以降**が必要です。公開 API `pi.registerToolRenderer()` は [Pi 1.0.1（2026-10-03）](https://github.com/earendil-works/pi/releases/tag/v1.0.1) の [commit 1144973](https://github.com/earendil-works/pi/commit/11449730c8a733953ce1bcce70e066bccaa778a5) で追加されました。旧バージョンではアップグレード案内を表示し、ツールの再登録へフォールバックしません。
+
+本拡張は renderer のみを登録し、ツールの execute を置き換えません。`pi-code-intel` が `bash` を登録していても折りたたみを利用でき、RTK、スキーマ、プロンプト、引数準備、実行ロジックを維持します。`mode: "default"` は `next()` で既存 renderer に委譲します。グループ化は TUI 行の追跡を利用するため、Pi 更新時は UI ライフサイクルの互換性も確認してください。
+
 ### npmからインストール (推奨)
 
 npm経由で直接インストールすることができます：

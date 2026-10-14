@@ -19,6 +19,7 @@ function makeTool(name: string, args: any, extra: any = {}) {
 	return {
 		constructor: { name: "ToolExecutionComponent" },
 		toolName: name,
+		rendererState: {},
 		args,
 		result: undefined,
 		isPartial: false,

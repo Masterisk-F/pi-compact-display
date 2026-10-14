@@ -16,7 +16,7 @@ describe('Event Handlers (Integration)', () => {
 				if (!handlers[event]) handlers[event] = [];
 				handlers[event].push(handler);
 			}),
-			registerTool: vi.fn(),
+			registerToolRenderer: vi.fn(),
 		};
 	});
 

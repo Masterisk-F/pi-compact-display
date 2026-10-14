@@ -20,6 +20,12 @@ It helps keep your context and screen clean by limiting overly long tool outputs
 
 ## Installation & Build
 
+### Compatibility
+
+Requires **Pi 1.0.1 or newer**. The public `pi.registerToolRenderer()` API was introduced in [Pi 1.0.1 (2026-10-03)](https://github.com/earendil-works/pi/releases/tag/v1.0.1), in [commit 1144973](https://github.com/earendil-works/pi/commit/11449730c8a733953ce1bcce70e066bccaa778a5). Older hosts fail with an explicit upgrade message; there is no legacy tool-registration fallback.
+
+This extension registers **renderers only**, never replacement tool executors. It can therefore fold `bash` while another extension such as `pi-code-intel` owns the tool, preserving its RTK rewriting, schema, prompts, argument preparation, and execution behavior. `mode: "default"` delegates to the existing renderer via `next()`. Grouping still tracks TUI rows, so UI lifecycle compatibility should be tested when upgrading Pi.
+
 ### From npm (Recommended)
 
 You can install the extension directly from npm:

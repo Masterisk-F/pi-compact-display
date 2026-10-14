@@ -1,150 +1,51 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	createBashTool,
-	createEditTool,
-	createFindTool,
-	createGrepTool,
-	createLsTool,
-	createReadTool,
-	createWriteTool,
-	createBashToolDefinition,
-	createEditToolDefinition,
-	createFindToolDefinition,
-	createGrepToolDefinition,
-	createLsToolDefinition,
-	createReadToolDefinition,
-	createWriteToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { wrapWithBox } from "./uiUtils";
-import { Config, resolveToolConfig } from "./config";
-import { formatCallLine } from "./renderUtils";
+import { Config, resolveToolConfig, getEffectiveToolName } from "./config";
+import { formatCallLine, formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
+import { GroupContent, getGroupOwner } from "./group";
+import { ZERO, wrapWithBox } from "./uiUtils";
 
-// ── Tool cache ──
-const toolCache = new Map<string, ReturnType<typeof createBuiltInTools>>();
+export function registerToolRenderers(pi: ExtensionAPI, config: Config) {
+	pi.registerToolRenderer((toolName, next) => {
+		const original = next();
+		const baseConfig = resolveToolConfig(toolName, undefined, config);
+		const hasOverrides = Object.keys(config).some(key => key.startsWith(`${toolName}:`));
+		if (baseConfig.mode === "default" && !hasOverrides) return original;
 
-const BUILTIN_DEFS: Record<string, (cwd: string) => any> = {
-	read: createReadToolDefinition,
-	ls: createLsToolDefinition,
-	find: createFindToolDefinition,
-	grep: createGrepToolDefinition,
-	bash: createBashToolDefinition,
-	edit: createEditToolDefinition,
-	write: createWriteToolDefinition,
-};
-
-function createBuiltInTools(cwd: string) {
-	return {
-		read: createReadTool(cwd),
-		bash: createBashTool(cwd),
-		edit: createEditTool(cwd),
-		write: createWriteTool(cwd),
-		find: createFindTool(cwd),
-		grep: createGrepTool(cwd),
-		ls: createLsTool(cwd),
-	};
-}
-
-export function getTools(cwd: string) {
-	let t = toolCache.get(cwd);
-	if (!t) {
-		t = createBuiltInTools(cwd);
-		toolCache.set(cwd, t);
-	}
-	return t;
-}
-
-export function registerCustomTools(pi: ExtensionAPI, config: Config) {
-	const orig = getTools(process.cwd());
-
-	// name / label / description は呼び出し側で書かず、Pi 組み込み定義から与える
-	// (上書き登録では Pi が組み込みメタデータを継承しないため。plans/empty-config-tool-registration.md 参照)
-	const reg = (
-		name: string,
-		def: Omit<Parameters<ExtensionAPI["registerTool"]>[0], "name" | "label" | "description">,
-	) => {
-		if (resolveToolConfig(name, undefined, config).mode === "default") return;
-
-		const builtin = BUILTIN_DEFS[name](process.cwd());
-		pi.registerTool({
-			...def,
-			name,
-			label: builtin.label,
-			description: builtin.description,
-			promptSnippet: builtin.promptSnippet,
-			promptGuidelines: builtin.promptGuidelines,
-			prepareArguments: builtin.prepareArguments,
-			executionMode: builtin.executionMode,
-		});
-	};
-
-	// Bash
-	reg("bash", {
-		parameters: orig.bash.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).bash.execute(toolCallId, params as any, signal, onUpdate);
-		},
-		renderCall(args, theme, context) {
-			return wrapWithBox(new Text(formatCallLine("bash", args), 0, 0), theme, context);
-		},
-	});
-
-	// Read
-	reg("read", {
-		parameters: orig.read.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).read.execute(toolCallId, params as any, signal, onUpdate);
-		},
-	});
-
-	// Write
-	reg("write", {
-		parameters: orig.write.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).write.execute(toolCallId, params as any, signal, onUpdate);
-		},
-		renderCall(args, theme, context) {
-			return wrapWithBox(new Text(formatCallLine("write", args), 0, 0), theme, context);
-		},
-	});
-
-	// Edit
-	reg("edit", {
-		parameters: orig.edit.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).edit.execute(toolCallId, params as any, signal, onUpdate);
-		},
-		renderCall(args, theme, context) { return wrapWithBox(new Text(formatCallLine("edit", args), 0, 0), theme, context); },
-	});
-
-	// Ls
-	reg("ls", {
-		parameters: orig.ls.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).ls.execute(toolCallId, params as any, signal, onUpdate);
-		},
-	});
-
-	// Find
-	reg("find", {
-		parameters: orig.find.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).find.execute(toolCallId, params as any, signal, onUpdate);
-		},
-	});
-
-	// Grep
-	reg("grep", {
-		parameters: orig.grep.parameters,
-		renderShell: "self",
-		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			return getTools(ctx.cwd).grep.execute(toolCallId, params as any, signal, onUpdate);
-		},
+		const renderers: ToolRenderers = {
+			renderShell: baseConfig.mode === "default" ? original?.renderShell : "self",
+			renderCall(args, theme, context) {
+				const toolConfig = resolveToolConfig(toolName, args, config);
+				if (toolConfig.mode === "default") return original?.renderCall?.(args, theme, context) ?? new Text(formatCallLine(toolName, args), 0, 0);
+				if (toolConfig.mode === "count_only") return ZERO;
+				if (config.grouping === true && toolConfig.grouping !== false) {
+					let group: GroupContent | undefined;
+					return {
+						invalidate() { group?.invalidate(); },
+						render(width) {
+							const owner = getGroupOwner(context.state);
+							if (owner) {
+								group ??= new GroupContent(owner, config, theme);
+								return group.render(width);
+							}
+							const header = theme.fg("toolTitle", `⚡ ${getEffectiveToolName(toolName, args)} ×1`);
+							const text = context.expanded ? `${header}\n${formatCallLine(toolName, args)}` : header;
+							return wrapWithBox(new Text(text, 0, 0), theme, context, toolConfig).render(width);
+						},
+					};
+				}
+				return wrapWithBox(new Text(theme.fg("toolTitle", theme.bold(formatCallLine(toolName, args))), 0, 0), theme, context, toolConfig);
+			},
+			renderResult(result, options, theme, context) {
+				const toolConfig = resolveToolConfig(toolName, context.args, config);
+				if (toolConfig.mode === "default") return original?.renderResult?.(result, options, theme, context) ?? new Text(resolveResultText(toolName, context.args, result), 0, 0);
+				if (toolConfig.mode === "count_only" || options.isPartial) return ZERO;
+				if (config.grouping === true && toolConfig.grouping !== false && (getGroupOwner(context.state) || !options.expanded)) return ZERO;
+				const raw = resolveResultText(toolName, context.args, { ...result, isError: context.isError });
+				const formatted = formatOutput(raw, toolConfig, options.expanded);
+				return formatted ? wrapWithBox(new Text(colorizeResult(toolName, formatted, theme), 0, 0), theme, context, toolConfig) : ZERO;
+			},
+		};
+		return renderers;
 	});
 }
