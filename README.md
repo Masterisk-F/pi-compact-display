@@ -2,14 +2,17 @@
 
 An extension for the Pi Assistant that allows you to finely customize the terminal (TUI) output for various tools (e.g., bash, read, ls, edit) on a per-tool basis.
 
-It helps keep your context and screen clean by limiting overly long tool outputs or hiding unnecessary tool calls, summarizing them instead.
+Keep the screen compact without dropping tool results from the model's input: limit output lines, hide routine calls behind counts, or fold an entire turn's intermediate process while keeping the final answer visible.
+
+> **Source-branch features:** Renderer-only compatibility is proposed in [PR #9](https://github.com/Masterisk-F/pi-compact-display/pull/9); whole-turn folding and chronological grouping are proposed in [PR #10](https://github.com/Masterisk-F/pi-compact-display/pull/10). These changes are not yet released on npm. Use this source branch to try them; the npm installation below installs the published package.
 
 ![screenshot](https://raw.githubusercontent.com/Masterisk-F/pi-compact-display/master/screenshot1.png)
 
 ## Features
 
+- **Whole-turn Process Folding (Opt-in)**: Fold intermediate progress and tool rows into one process card per user message. The latest progress remains visible while running; the final answer remains fully visible when finished.
 - **Per-Tool Configuration**: Set different display modes for each tool.
-- **Summary Display**: Hide execution details and output only a summary like `⚡ read(1) ls(2)` at the top of the assistant's response.
+- **Summary Display**: Hide routine tool text behind counts. With turn folding off, `count_only` calls add a summary such as `⚡ read(1) ls(2)` to the final response; with it on in the TUI, the process card provides the counts instead.
 - **Line Limit & Padding Removal**: Limit the number of output lines and automatically strip empty padding lines.
 - **Grouped Tool Results**: With `grouping` enabled, consecutive `lines`-mode calls form compact aggregation lines (e.g. `⚡ bash ×3`), without crossing progress messages or other visible transcript content.
 - **Suppress Thinking Indicator**: With `hideThinking` enabled, the "Thinking..." indicator (and full thinking blocks) shown for thinking models are hidden from the assistant messages.
@@ -26,7 +29,7 @@ Requires **Pi 1.0.1 or newer**. The public `pi.registerToolRenderer()` API was i
 
 This extension registers **renderers only**, never replacement tool executors. It can therefore fold `bash` while another extension such as `pi-code-intel` owns the tool, preserving its RTK rewriting, schema, prompts, argument preparation, and execution behavior. `mode: "default"` delegates to the existing renderer via `next()`. Grouping still tracks TUI rows, so UI lifecycle compatibility should be tested when upgrading Pi.
 
-### From npm (Recommended)
+### From npm (Published Version)
 
 You can install the extension directly from npm:
 
@@ -37,7 +40,8 @@ pi install npm:pi-compact-display
 ### From Source (Local Development)
 
 ```bash
-# Clone or navigate to the repository
+# Preview PR #10 in a separate source checkout
+git clone --branch feat/local-turn-folding https://github.com/lozybean/pi-compact-display.git
 cd pi-compact-display
 
 # Install dependencies
@@ -50,6 +54,8 @@ npm run build
 pi install .
 ```
 
+Load only **one copy** of this extension: do not keep both the npm package and a local checkout enabled. For source-code changes, run `npm run build` before restarting Pi or using `/reload`; for configuration-only changes, `/reload` is enough. The extension loads `dist/index.js`, not `src/index.ts`.
+
 ---
 
 ## Configuration
@@ -61,40 +67,52 @@ Create a configuration file named `config.json` at the following location:
 
 ### Configuration Structure
 
-The configuration is in JSON format, where the key is the "tool name" and the value is its "display settings (options)".
+The same JSON object holds global switches (`turnFolding`, `grouping`, `hideThinking`), special padding settings (`user`, `skill`), and per-tool settings. Tool keys can be built-in names, extension names, or gateway sub-tool names.
 
 ```json
 {
   "tool_name": {
-    "mode": "display_mode",
-    "outputLines": number,
-    "noPadding": true or false
+    "mode": "lines",
+    "outputLines": 4,
+    "noPadding": true
   }
 }
 ```
 
-### Available Properties
+### Global Settings
+
+| Key | Default | Controls |
+| --- | --- | --- |
+| `turnFolding` | `false` | Outer process cards; TUI only. Requires Pi >=1.1.0. |
+| `grouping` | `false` | Inner aggregation of consecutive `lines` calls; independent of turn folding. |
+| `hideThinking` | `false` | Hide thinking content and its indicator; does not remove it from model input. |
+| `default` | `{ "mode": "default" }` | Fallback **tool configuration** for names without an explicit match. Does not set the global switches or `user`/`skill`. |
+
+After any config change, restart Pi or use `/reload`. Keep the file valid JSON (no comments or trailing commas); a missing or unparsable file is treated as empty configuration.
+
+### Per-Tool Properties
 
 | Property | Type | Description |
 | --- | --- | --- |
 | **`mode`** | `string` | The display mode for the tool. Must be `"count_only"`, `"lines"`, or `"default"`. (Required) |
-| **`outputLines`** | `number` | The maximum number of lines to display. Only effective when `mode` is `"lines"`. (Optional) |
-| **`noPadding`** | `boolean` | Whether to remove leading, trailing, and consecutive empty lines from the output. Set to `true` to omit empty lines. Only effective when `mode` is `"lines"`. When grouped, the overall padding of the group card follows the `noPadding` setting of the leader (the first tool in the group). (Optional) |
+| **`outputLines`** | `number` | Maximum unexpanded result-text lines in `"lines"` mode; omitted means no line limit. Grouped calls initially show counts only, and expanding tool details bypasses this limit. (Optional) |
+| **`noPadding`** | `boolean` | Whether to remove all blank result-text lines, including internal blank lines. Set to `true` to omit them. Only effective when `mode` is `"lines"`. When grouped, the overall padding of the group card follows the `noPadding` setting of the leader (the first tool in the group). (Optional) |
 | **`grouping`** | `boolean` | Whether to include this tool in the group card when the global `grouping` setting is enabled. Set to `false` to exclude it from grouping and display it as a separate card. Default is `true`. (Optional) |
 
 ### Display Modes (`mode`)
 
 1. **`"count_only"`**
-   - **Behavior**: The tool execution and its output are completely hidden from the screen. Instead, the number of executions is summarized at the top of the assistant's message (e.g., `⚡ read(1)`).
+   - **Behavior**: Hides the call title and result text, including error text. With turn folding off, counts are summarized in the final assistant response (e.g., `⚡ read(1)`); with it on in the TUI, counts appear on the process card instead. Image results remain handled by Pi's image renderer.
+   - **Errors**: Failures mark the count summary or increment the process card's tool-failure count, but expanding a process or pressing `Ctrl+O` does not reveal `count_only` text. Use `lines` or `default` for tools whose diagnostics you need to inspect.
    - **Use Case**: Best for tools like `read`, `ls`, `find`, or `grep`, where the LLM gathers information autonomously and humans do not need to read the raw output.
 
 2. **`"lines"`**
-   - **Behavior**: Displays the tool execution command and a truncated portion of its result. It limits the output to the specified `outputLines`.
+   - **Behavior**: Without grouping (globally disabled, or `grouping: false` for that tool), displays the call and up to `outputLines` result-text lines. With grouping enabled, shows a count header until the **tool group itself** is expanded; expanded details include full result text.
    - **Use Case**: Ideal for tools like `bash`, `edit`, or `write`, where humans want to quickly check the executed command and whether it resulted in an error.
 
 3. **`"default"`**
    - **Behavior**: Bypasses this extension's rendering overrides and falls back to Pi's default rendering logic (or logic defined by other extensions).
-   - **Note**: Any tool not specified in the configuration file, or if `config.json` is missing entirely, will automatically default to `default`.
+   - **Note**: An unspecified tool inherits the `default` **configuration key**, if present. Without that key, or with no config file, it uses `mode: "default"`. This fallback applies to newly added extension tools too.
 
 ---
 
@@ -102,6 +120,7 @@ The configuration is in JSON format, where the key is the "tool name" and the va
 
 ```json
 {
+  "turnFolding": false,
   "grouping": true,
   "hideThinking": true,
   "user": {
@@ -226,27 +245,81 @@ Thinking-capable models may emit `thinking` content blocks, which Pi renders as 
 
 ## Whole-turn process folding
 
-Enable `"turnFolding": true` in `~/.pi/agent/extensions/pi-compact-display/config.json`, then restart Pi or run `/reload`. It is **disabled by default**; omit the key or set it to `false` to retain the existing per-tool display. This switch is independent of `grouping` and `hideThinking`.
+Set `turnFolding` to `true` in `~/.pi/agent/extensions/pi-compact-display/config.json`, then restart Pi or use `/reload`. It is **disabled by default**. It controls only the outer process card; `grouping` and `hideThinking` remain independent.
+
+### Quick-start configuration
+
+This example folds routine reads into counts, aggregates consecutive tool calls, keeps unlisted tools compact, and preserves an image tool's own renderer. Change tool names to match the extensions you actually use.
 
 ```json
 {
   "turnFolding": true,
   "grouping": true,
+  "read": { "mode": "count_only" },
+  "bash": { "mode": "lines", "outputLines": 4, "noPadding": true },
+  "agent": { "mode": "lines", "outputLines": 8, "noPadding": true, "grouping": false },
+  "codex_generate_image": { "mode": "default" },
   "default": { "mode": "lines", "outputLines": 4, "noPadding": true }
 }
 ```
 
-In the TUI, each user message starts a separate process card. While the assistant works, only the latest progress preview and progress/tool counts are shown. Intermediate assistant text and tool rows remain stored but are folded. When finished, the final answer remains fully visible below the card. Failures/cancellation are labeled, tool failures are counted, and image-result rows remain visible. No extra model call is used to generate a summary.
+### Running, opened, and finished
 
-Press **Ctrl+Alt+O** from the editor to **collapse all opened process cards**, including running tasks. Repeated presses never expand anything. To expand a single turn, click its process header in **fullscreen TUI mode**; clicking it again folds that turn. This works both during execution and after completion. There is no expand-all command for process cards, and native **Ctrl+O** does not change their open/closed state (it still controls other tool rows). Running turns are folded by default with their latest progress visible, but manual expansion stays open as new progress and tool results arrive. Final settlement automatically folds the process and reveals the full final reply. Single-turn expansion reveals intermediate text and tool rows using their **existing per-tool settings**: `count_only` stays hidden, `lines` keeps its line limit and grouping, and `default` keeps the owning renderer. Opening, closing or settling a process never changes a tool’s independent expansion state. Use the tool’s own expansion or native **Ctrl+O** to inspect its details separately. In regular terminal mode mouse interaction is owned by the terminal, so switch to fullscreen to open an individual process card.
+- **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts and a one-line preview of the latest assistant progress text; it is not a model-generated summary.
+- **Manually opened:** Click that turn's header in **fullscreen TUI mode**. New progress and tool results do not close it. Click again to fold that turn.
+- **Finished:** When the agent actually settles, the process automatically folds and the final response stays fully visible below it. Completion of a single tool or model response is not the auto-collapse boundary.
+- **Errors and cancellation:** The card labels cancellation, response errors, or truncation and counts tool failures. Opening it still respects each tool's display mode; `count_only` error text stays hidden.
+- **Images:** Image-result tool rows are not hidden by the process card and are excluded from aggregation. Image display still depends on Pi's image settings and terminal support.
 
-This is a **display-only** feature: session messages, tool execution, model input, and HTML/RPC/JSON/print output are not rewritten by turn folding. It reconstructs cards when Pi replays a saved session. Set `turnFolding` to `false` and reload to restore the previous display.
+The progress count measures intermediate assistant messages with non-empty text. The tool total counts all tool rows, including `count_only` calls; an inner group header counts only the calls belonging to that group.
 
-Requires **Pi >=1.1.0** when enabled: the `aborted` field on `agent_settled` was introduced in Pi 1.1.0 (2026-10-07). Hosts older than that receive an upgrade/disable message before UI mutation; the existing per-tool renderer remains usable on Pi >=1.0.1 when the switch is off. Verified with **Pi 1.2.0**. Unlike `registerToolRenderer`, Pi has no public whole-turn renderer API: this opt-in feature uses the existing Container mirror and instance-level row rendering wrappers. Revalidate it when changing Pi versions.
+### Outer process visibility ≠ inner tool expansion
+
+Opening the process reveals its rows **at their original transcript positions**. It does not force tools open, reset their state, or change their configuration:
+
+| Inner tool setting | After opening the outer process |
+| --- | --- |
+| `count_only` | Call/result text stays hidden. |
+| `lines` + grouping | Consecutive calls retain folded count headers unless the tool group was independently expanded. |
+| `lines` + `grouping: false` | Standalone call/result preview retains `outputLines` until that tool is expanded. |
+| `default` | The tool's owning renderer remains in control. |
+
+Opening, closing, settling, or disabling the outer process never changes a tool's independent expansion state. Use the tool's own expansion control or native **Ctrl+O** for tool details. Conversely, **Ctrl+O never opens process cards**; there is no expand-all process command.
+
+With grouping enabled, opened processes preserve the visible sequence below. The current process header uses the Chinese labels shown here; the indents illustrate the layout, not literal output padding.
+
+```text
+▼ 执行过程 · 已完成 · 2 条进度 · 3 次工具调用
+  Inspecting the current implementation…
+  ⚡ bash ×2
+  Applying the targeted fix…
+  ⚡ edit ×1
+Final answer (always visible)
+```
+
+### Disable and compatibility
+
+Set `turnFolding` to `false` (or remove it) and use `/reload` to remove process cards and restore the existing per-tool display. Other options such as `grouping` stay in effect. Saved sessions reconstruct their process cards when replayed; no history is deleted.
+
+Turn folding is **TUI-only and display-only**: it does not change session messages, tool execution, model input, or HTML/RPC/JSON/print output, and it makes no extra model calls. In regular terminal mode, mouse interaction belongs to the terminal; use fullscreen mode to open an individual process card.
+
+Enabled turn folding requires **Pi >=1.1.0**, because `agent_settled.aborted` was introduced in Pi 1.1.0 (2026-10-07). Older hosts receive an upgrade/disable message before UI mutation. With the switch off, per-tool rendering requires only Pi >=1.0.1. Verified with **Pi 1.2.0**. Unlike `registerToolRenderer`, Pi has no public whole-turn renderer API: this feature uses the existing Container mirror and instance-level row-rendering wrappers. Revalidate it when changing Pi versions.
 
 ## Usage & Shortcuts
 
-After setting up the configuration, simply start the Pi assistant.
+| Action | Effect |
+| --- | --- |
+| Click a process header in fullscreen TUI | Open/close only that process, including while running. Requires `turnFolding: true`. |
+| **Ctrl+Alt+O** from the editor | Collapse all opened processes, including running ones. Repeated presses never expand them or reset inner tools. |
+| Native **Ctrl+O** / tool expansion | Control tool details independently; never open the outer process. |
+| `/reload` | Apply configuration changes. Build first if source code changed. |
 
-- **Context Cleanup**: Tools set to `count_only` will display summaries like `⚡ read(1)` on the screen. However, this summary text is automatically stripped from the conversation history (context) sent to the LLM behind the scenes, so it won't pollute the LLM's context window.
-- **Full Output (Expanded)**: If the output is truncated in `lines` mode, you can use Pi's native expand shortcut (typically `Ctrl+O`) to bypass the line limits and view the full output.
+Without TUI turn folding, `count_only` summaries such as `⚡ read(1)` are stripped from model-facing context. With TUI turn folding, counts are rendered directly in the process card instead of being prepended to the final response. Raw tool results remain available to the model in either case.
+
+## Troubleshooting
+
+- **No process card:** Confirm this source branch is installed and built, `turnFolding` is `true`, Pi is >=1.1.0, and the session is TUI. A turn with no intermediate progress or tools need not show a card. Reload after editing the config.
+- **Clicking does nothing:** Process-header clicks require fullscreen TUI mode. Regular terminal mouse selection does not toggle cards; `Ctrl+O` is only for tool details.
+- **No four-line preview after opening a process:** A grouped `lines` call shows a count header until you expand the inner group. To see an unexpanded result preview, set that tool's `grouping` to `false` (or disable global grouping).
+- **An unlisted tool is hidden or grouped:** Check the `default` configuration key. To preserve a specific extension's renderer, give its tool an explicit `{ "mode": "default" }`.
+- **Startup reports a conflicting tool:** Do not load both npm and source copies. The renderer-only implementation in this branch does not replace the existing `bash` executor or RTK behavior.
