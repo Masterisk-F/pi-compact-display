@@ -22,6 +22,8 @@ export type Config = Record<string, ToolConfig> & {
   grouping?: boolean;
   /** グローバル設定: true でアシスタントメッセージ内の thinking ブロック表示を抑制する */
   hideThinking?: boolean;
+  /** TUI-only (Pi 1.2.0 tested): fold intermediate assistant text/tools; final response stays visible. */
+  turnFolding?: boolean;
 };
 
 export function loadConfig(configPath: string): Config {
@@ -48,7 +50,7 @@ export function loadConfig(configPath: string): Config {
       if (prop in target) {
         return target[prop];
       }
-      if (prop === 'user' || prop === 'skill' || prop === 'grouping' || prop === 'hideThinking') {
+      if (prop === 'user' || prop === 'skill' || prop === 'grouping' || prop === 'hideThinking' || prop === 'turnFolding') {
         return undefined;
       }
       if ('default' in target) {

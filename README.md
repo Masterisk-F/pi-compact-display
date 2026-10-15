@@ -224,6 +224,26 @@ Thinking-capable models may emit `thinking` content blocks, which Pi renders as 
 
 ---
 
+## Whole-turn process folding
+
+Enable `"turnFolding": true` in `~/.pi/agent/extensions/pi-compact-display/config.json`, then restart Pi or run `/reload`. It is **disabled by default**; omit the key or set it to `false` to retain the existing per-tool display. This switch is independent of `grouping` and `hideThinking`.
+
+```json
+{
+  "turnFolding": true,
+  "grouping": true,
+  "default": { "mode": "lines", "outputLines": 4, "noPadding": true }
+}
+```
+
+In the TUI, each user message starts a separate process card. While the assistant works, only the latest progress preview and progress/tool counts are shown. Intermediate assistant text and tool rows remain stored but are folded. When finished, the final answer remains fully visible below the card. Failures/cancellation are labeled, tool failures are counted, and image-result rows remain visible. No extra model call is used to generate a summary.
+
+Press **Ctrl+Alt+O** from the editor to **collapse all opened process cards**, including running tasks. Repeated presses never expand anything. To expand a single turn, click its process header in **fullscreen TUI mode**; clicking it again folds that turn. This works both during execution and after completion. There is no expand-all command for process cards, and native **Ctrl+O** does not change their open/closed state (it still controls other tool rows). Running turns are folded by default with their latest progress visible, but manual expansion stays open as new progress and tool results arrive. Final settlement automatically folds the process and reveals the full final reply. Single-turn expansion reveals intermediate text and full tool output, including tools configured as `count_only`. In regular terminal mode mouse interaction is owned by the terminal, so switch to fullscreen to open an individual process card.
+
+This is a **display-only** feature: session messages, tool execution, model input, and HTML/RPC/JSON/print output are not rewritten by turn folding. It reconstructs cards when Pi replays a saved session. Set `turnFolding` to `false` and reload to restore the previous display.
+
+Requires **Pi >=1.1.0** when enabled: the `aborted` field on `agent_settled` was introduced in Pi 1.1.0 (2026-10-07). Hosts older than that receive an upgrade/disable message before UI mutation; the existing per-tool renderer remains usable on Pi >=1.0.1 when the switch is off. Verified with **Pi 1.2.0**. Unlike `registerToolRenderer`, Pi has no public whole-turn renderer API: this opt-in feature uses the existing Container mirror and instance-level row rendering wrappers. Revalidate it when changing Pi versions.
+
 ## Usage & Shortcuts
 
 After setting up the configuration, simply start the Pi assistant.

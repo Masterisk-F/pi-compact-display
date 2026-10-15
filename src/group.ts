@@ -48,6 +48,10 @@ const parentMap = new TrackedWeakMap<object, Container>();
 const childrenMap = new WeakMap<Container, object[]>();
 const ownersByState = new WeakMap<object, object>();
 
+export function getParentContainer(child: object): Container | undefined {
+	return parentMap.get(child);
+}
+
 export function getGroupOwner(state: object): object | undefined {
 	return ownersByState.get(state);
 }

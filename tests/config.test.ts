@@ -108,6 +108,16 @@ describe('loadConfig', () => {
     expect(config.grouping).toBeUndefined();
   });
 
+  it('should keep turn folding opt-in, separate from the default tool configuration', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ default: { mode: 'lines' } }));
+    expect(loadConfig('/valid/path.json').turnFolding).toBeUndefined();
+    for (const enabled of [true, false]) {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ turnFolding: enabled, default: { mode: 'lines' } }));
+      expect(loadConfig('/valid/path.json').turnFolding).toBe(enabled);
+    }
+  });
+
   it('should support the global "hideThinking" flag', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({

@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	VERSION,
 	UserMessageComponent,
 	AssistantMessageComponent,
 	SkillInvocationMessageComponent,
@@ -11,6 +12,7 @@ import { isSpacer, isUserMessage, isAssistantMessage, isSkillInvocation } from "
 import { SummaryTracker } from "./state";
 import { registerToolRenderers } from "./tools";
 import { trackChild, untrackChild, resetChildren } from "./group";
+import { beginTurnFolding, configureTurnFolding, trackTurnChild, untrackTurnChild, clearTurnChildren, settleTurnFolding, collapseTurnFolding } from "./turn";
 import path from "path";
 import os from "os";
 
@@ -20,7 +22,29 @@ export default function (pi: ExtensionAPI) {
 	}
 	const configPath = path.join(os.homedir(), ".pi", "agent", "extensions", "pi-compact-display", "config.json");
 	const config = loadConfig(configPath);
+	if (config.turnFolding === true) {
+		const [major, minor] = VERSION.split(".").map(Number);
+		if (!(major > 1 || (major === 1 && minor >= 1))) {
+			throw new Error("turnFolding requires Pi >=1.1.0 (agent_settled.aborted); upgrade Pi or set turnFolding to false.");
+		}
+	}
 	const tracker = new SummaryTracker();
+	// No public whole-turn renderer API exists; opt in only after TUI session startup.
+	configureTurnFolding(false);
+	pi.on("session_start", (_event, ctx) => {
+		configureTurnFolding(config.turnFolding === true && ctx.mode === "tui");
+	});
+	pi.on("session_shutdown", () => configureTurnFolding(false));
+	pi.on("agent_start", () => beginTurnFolding());
+	pi.on("agent_settled", (event) => settleTurnFolding(event.aborted));
+	if (config.turnFolding === true) {
+		pi.registerShortcut("ctrl+alt+o", {
+			description: "Collapse all process cards (click a header to expand one, including running tasks)",
+			handler: (ctx) => {
+				if (ctx.mode === "tui") collapseTurnFolding();
+			},
+		});
+	}
 
 	// @ts-ignore
 	const originalRebuild = UserMessageComponent.prototype.rebuild;
@@ -46,15 +70,15 @@ export default function (pi: ExtensionAPI) {
 	// @ts-ignore
 	const originalUpdateContent = AssistantMessageComponent.prototype.updateContent;
 	// @ts-ignore
-	AssistantMessageComponent.prototype.updateContent = function (message: any) {
+	AssistantMessageComponent.prototype.updateContent = function (message: any, isStreaming?: boolean) {
 		if (config.hideThinking) {
 			const filtered = {
 				...message,
 				content: message.content.filter((c: any) => c.type !== "thinking"),
 			};
-			return originalUpdateContent.call(this, filtered);
+			return originalUpdateContent.call(this, filtered, isStreaming);
 		}
-		return originalUpdateContent.call(this, message);
+		return originalUpdateContent.call(this, message, isStreaming);
 	};
 
 	// ── Skill invocation padding (issue #3) ──
@@ -141,6 +165,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (!alreadyTracked) {
 				trackChild(this, comp);
+				trackTurnChild(this, comp);
 			}
 		} finally {
 			// ネストしたパッチ (外側が trackChild する) の場合も最終状態は undefined で良い
@@ -169,6 +194,7 @@ export default function (pi: ExtensionAPI) {
 	Container.prototype.removeChild = function (this: any, comp: any) {
 		originalRemoveChild.call(this, comp);
 		untrackChild(this, comp);
+		untrackTurnChild(this, comp);
 	};
 
 	// @ts-ignore
@@ -177,6 +203,7 @@ export default function (pi: ExtensionAPI) {
 	Container.prototype.clear = function (this: any) {
 		originalClear.call(this);
 		resetChildren(this);
+		clearTurnChildren(this);
 	};
 
 	// ── Count tool calls for count_only tools ──
@@ -208,6 +235,10 @@ export default function (pi: ExtensionAPI) {
 		// ここでリセットすると同一ターン内の後続ツールが集計漏れする (a21efc7 の I3 対応)。
 		const stopReason = (event.message as any).stopReason;
 		if (stopReason === "toolUse") return;
+		if (config.turnFolding === true && ctx?.mode === "tui") {
+			tracker.reset();
+			return; // The process card provides counts without injecting UI text into the answer.
+		}
 
 		const content = event.message.content;
 		if (!Array.isArray(content)) return;
