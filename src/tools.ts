@@ -2,7 +2,7 @@ import type { ExtensionAPI, ToolRenderers } from "@earendil-works/pi-coding-agen
 import { Text } from "@earendil-works/pi-tui";
 import { Config, resolveToolConfig, getEffectiveToolName } from "./config";
 import { formatCallLine, formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
-import { GroupContent, getGroupOwner } from "./group";
+import { GroupContent, getGroupOwner, groupOf } from "./group";
 import { ZERO, wrapWithBox } from "./uiUtils";
 
 export function registerToolRenderers(pi: ExtensionAPI, config: Config) {
@@ -25,8 +25,12 @@ export function registerToolRenderers(pi: ExtensionAPI, config: Config) {
 						render(width) {
 							const owner = getGroupOwner(context.state);
 							if (owner) {
-								group ??= new GroupContent(owner, config, theme);
-								return group.render(width);
+								if (groupOf(owner, config).length) {
+									group ??= new GroupContent(owner, config, theme);
+									return group.render(width);
+								}
+								// Image results leave aggregation and retain a standalone call/result row.
+								return wrapWithBox(new Text(theme.fg("toolTitle", formatCallLine(toolName, args)), 0, 0), theme, context, toolConfig).render(width);
 							}
 							const header = theme.fg("toolTitle", `⚡ ${getEffectiveToolName(toolName, args)} ×1`);
 							const text = context.expanded ? `${header}\n${formatCallLine(toolName, args)}` : header;
@@ -40,10 +44,22 @@ export function registerToolRenderers(pi: ExtensionAPI, config: Config) {
 				const toolConfig = resolveToolConfig(toolName, context.args, config);
 				if (toolConfig.mode === "default") return original?.renderResult?.(result, options, theme, context) ?? new Text(resolveResultText(toolName, context.args, result), 0, 0);
 				if (toolConfig.mode === "count_only" || options.isPartial) return ZERO;
-				if (config.grouping === true && toolConfig.grouping !== false && (getGroupOwner(context.state) || !options.expanded)) return ZERO;
 				const raw = resolveResultText(toolName, context.args, { ...result, isError: context.isError });
 				const formatted = formatOutput(raw, toolConfig, options.expanded);
-				return formatted ? wrapWithBox(new Text(colorizeResult(toolName, formatted, theme), 0, 0), theme, context, toolConfig) : ZERO;
+				const output = formatted ? wrapWithBox(new Text(colorizeResult(toolName, formatted, theme), 0, 0), theme, context, toolConfig) : ZERO;
+				if (config.grouping === true && toolConfig.grouping !== false) {
+					// Results can arrive before the row is attached. Resolve its live group
+					// at render time, just like the call renderer, including image exclusions.
+					return {
+						invalidate() { output.invalidate(); },
+						render(width) {
+							const owner = getGroupOwner(context.state);
+							if (owner ? groupOf(owner, config).length > 0 : !options.expanded) return [];
+							return output.render(width);
+						},
+					};
+				}
+				return output;
 			},
 		};
 		return renderers;

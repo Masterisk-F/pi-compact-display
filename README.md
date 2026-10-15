@@ -11,7 +11,7 @@ It helps keep your context and screen clean by limiting overly long tool outputs
 - **Per-Tool Configuration**: Set different display modes for each tool.
 - **Summary Display**: Hide execution details and output only a summary like `⚡ read(1) ls(2)` at the top of the assistant's response.
 - **Line Limit & Padding Removal**: Limit the number of output lines and automatically strip empty padding lines.
-- **Grouped Tool Results**: With `grouping` enabled, all `lines`-mode calls in one user turn are combined into a single aggregation line (e.g. `⚡ bash ×3`).
+- **Grouped Tool Results**: With `grouping` enabled, consecutive `lines`-mode calls form compact aggregation lines (e.g. `⚡ bash ×3`), without crossing progress messages or other visible transcript content.
 - **Suppress Thinking Indicator**: With `hideThinking` enabled, the "Thinking..." indicator (and full thinking blocks) shown for thinking models are hidden from the assistant messages.
 - **Support for External Tools**: Override the display settings not only for Pi's built-in tools but also for any custom tools added by other extensions.
 - **Expandable Details**: Fully supports Pi's native expand feature (e.g., pressing `Ctrl+O` in the TUI), overriding the limits to show the full output.
@@ -194,7 +194,7 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 
 ### Global Setting: Grouping Tool Results (`grouping`)
 
-`lines`-mode tools normally render one tool card per call. When this is enabled, **all `lines`-mode calls within one user turn are combined into a single card that shows only the aggregation header**, greatly reducing the vertical space used on screen. Even if the assistant splits its work into multiple thinking passes (multiple assistant messages), everything in the same user turn stays in one card.
+`lines`-mode tools normally render one tool card per call. With grouping enabled, **only consecutive tool calls are combined** into a card that shows the aggregation header. Visible assistant progress or thinking, warnings, custom messages, image-result tools, and standalone/default-mode tools end a group. This preserves the displayed sequence: progress → tool group → next progress → next tool group, instead of moving later calls into the first group.
 
 **Configuration Example:**
 ```json
@@ -205,9 +205,9 @@ If you want to remove the vertical empty lines (vertical padding) that appear ab
 }
 ```
 
-- **`grouping`** (`boolean`): Set to `true` to combine all `lines`-mode calls in one user turn (regardless of tool name) into a single card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined. You can exclude specific tools from the group by setting `"grouping": false` in their individual tool configuration.
+- **`grouping`** (`boolean`): Set to `true` to combine each consecutive run of `lines`-mode calls (regardless of tool name) into a compact card. The card shows only the count header such as `⚡ bash ×3 edit ×1` (even a single call is shown as `⚡ bash ×1`). Like `"user"`, this setting is not affected by other configurations such as `"default"` and is only applied if explicitly defined. You can exclude specific tools from the group by setting `"grouping": false` in their individual tool configuration.
 - Command lines and outputs are hidden by default; press `Ctrl+O` (expand) to show every call's command line and full, untruncated output for all tools in the group.
-- Calls in different turns (separated by a user message) are rendered as separate cards.
+- Groups never cross a user message or visible assistant text/thinking. Empty assistant placeholders, spacers, suppressed thinking (`hideThinking: true`), and invisible `count_only` tools may be skipped. Image results remain standalone. Streaming placeholders split a group as soon as they gain visible content. Grouping is presentation-only and follows transcript call order; it does not imply a sequential execution order for parallel tools.
 
 ### Global Setting: Suppress Thinking Indicator (`hideThinking`)
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import { Container } from '@earendil-works/pi-tui';
-import { initTheme, renderDiff } from '@earendil-works/pi-coding-agent';
+import { AssistantMessageComponent, UserMessageComponent, initTheme, renderDiff } from '@earendil-works/pi-coding-agent';
 import { loadRenderingExtension } from './renderingHarness';
 import { groupOf } from '../src/group';
 import { loadConfig } from '../src/config';
@@ -105,6 +105,71 @@ describe('Grouping integration (registered renderers)', () => {
 		const expanded = edit.render(80).join('\n');
 		for (const text of ['edit a.ts', '-2 foo', '+2 bar', 'write b.txt', 'written line 1', 'written line 2']) expect(expanded).toContain(text);
 		expect(expanded).not.toContain('Successfully');
+	});
+
+	it('keeps consecutive tool groups between their actual assistant progress messages', () => {
+		configure({ turnFolding: true, grouping: true, bash: { mode: 'lines' } });
+		makeComponent = loadRenderingExtension(true);
+		const c = new Container();
+		c.addChild(new UserMessageComponent('Question'));
+		const progress = (text: string, stopReason = 'toolUse') => new AssistantMessageComponent({ role: 'assistant', content: [{ type: 'text', text }], stopReason } as any);
+		c.addChild(progress('STEP_ONE'));
+		const a = makeComponent('bash', 'sequence-1', { command: 'echo one' });
+		const b = makeComponent('bash', 'sequence-2', { command: 'echo two' });
+		const d = makeComponent('bash', 'sequence-3', { command: 'echo three' });
+		for (const row of [a, b, d]) row.updateResult(result('HIDDEN_TOOL_DETAIL'));
+		c.addChild(a);
+		c.addChild(b);
+		c.addChild(progress('STEP_TWO'));
+		c.addChild(d);
+		c.addChild(progress('FINAL_STEP', 'stop'));
+		const card = c.children.find(row => row.constructor.name === 'TurnProcessCard') as any;
+		card.handleMouse({ type: 'click', button: 'left', y: 0 });
+		const text = c.render(120).join('\n');
+		const ordered = ['STEP_ONE', '⚡ bash ×2', 'STEP_TWO', '⚡ bash ×1', 'FINAL_STEP'].map(marker => text.indexOf(marker));
+		for (let i = 0; i < ordered.length; i++) {
+			expect(ordered[i]).toBeGreaterThanOrEqual(0);
+			if (i) expect(ordered[i]).toBeGreaterThan(ordered[i - 1]);
+		}
+		expect(text).not.toContain('HIDDEN_TOOL_DETAIL');
+		a.setExpanded(true);
+		expect(d.render(120).join('\n')).not.toContain('HIDDEN_TOOL_DETAIL');
+	});
+
+	it('splits a live group when an empty assistant row gains text', () => {
+		const c = new Container();
+		const a = makeComponent('bash', 'dynamic-1', { command: 'echo before' });
+		const b = makeComponent('bash', 'dynamic-2', { command: 'echo after' });
+		const placeholder = new AssistantMessageComponent();
+		a.updateResult(result('before result'));
+		b.updateResult(result('after result'));
+		c.addChild(a);
+		c.addChild(placeholder);
+		c.addChild(b);
+		expect(c.render(120).join('\n')).toContain('⚡ bash ×2');
+		placeholder.updateContent({ role: 'assistant', content: [{ type: 'text', text: 'STREAMED_BOUNDARY' }], stopReason: 'pending' } as any, true);
+		const text = c.render(120).join('\n');
+		expect(text).not.toContain('⚡ bash ×2');
+		expect(text.match(/⚡ bash ×1/g)).toHaveLength(2);
+		expect(text.indexOf('STREAMED_BOUNDARY')).toBeGreaterThan(text.indexOf('⚡ bash ×1'));
+		expect(text.lastIndexOf('⚡ bash ×1')).toBeGreaterThan(text.indexOf('STREAMED_BOUNDARY'));
+	});
+
+	it('keeps the call and text note of an image-result tool outside the group', () => {
+		const c = new Container();
+		const a = makeComponent('bash', 'image-1', { command: 'echo before' });
+		const image = makeComponent('bash', 'image-2', { command: 'render image' });
+		const b = makeComponent('bash', 'image-3', { command: 'echo after' });
+		a.updateResult(result('before result'));
+		image.updateResult({ content: [{ type: 'text', text: 'IMAGE_RESULT_NOTE' }, { type: 'image', data: '', mimeType: 'image/png' }], isError: false });
+		b.updateResult(result('after result'));
+		for (const row of [a, image, b]) c.addChild(row);
+		const text = c.render(120).join('\n');
+		expect(text.match(/⚡ bash ×1/g)).toHaveLength(2);
+		expect(text).toContain('$ render image');
+		expect(text).toContain('IMAGE_RESULT_NOTE');
+		expect(text.indexOf('$ render image')).toBeGreaterThan(text.indexOf('⚡ bash ×1'));
+		expect(text.lastIndexOf('⚡ bash ×1')).toBeGreaterThan(text.indexOf('IMAGE_RESULT_NOTE'));
 	});
 
 	it('should colorize edit diff added/removed lines in group expansion (S5)', () => {

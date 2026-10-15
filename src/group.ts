@@ -1,7 +1,7 @@
 import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { Config, getEffectiveToolName, resolveToolConfig } from "./config";
 import { formatCallLine, formatOutput, resolveResultText, colorizeResult } from "./renderUtils";
-import { isUserMessage, isToolComp } from "./componentUtils";
+import { isAssistantMessage, isSpacer, isUserMessage, isToolComp } from "./componentUtils";
 
 // ─────────────────────────────────────────────────────────────
 // 親子ミラー
@@ -117,18 +117,38 @@ export function resetChildren(container: Container): void {
 // ─────────────────────────────────────────────────────────────
 // グループ走査
 //
-// グループ = 直前のユーザーメッセージ (ターン境界) 以降の lines モード ToolExecutionComponent 全て
-// (thinking / モデル切替で assistant メッセージが複数に分かれても1グループ)。
-// 先頭メンバー = リーダー。リーダーだけがグループ全体を描画する。
+// Groups contain consecutive lines-mode tool rows only. Visible progress, thinking,
+// standalone tools and other transcript content end a group, preserving chronology.
+// Empty assistant placeholders, spacers and invisible count_only tools may be skipped.
+// Only the first member renders the aggregate at its actual position.
 // ─────────────────────────────────────────────────────────────
 
-// ターン境界 = ユーザーメッセージのみ。
-// thinking やモデル切替のたびに AssistantMessageComponent が追加されても分割しない
-// (pi は 1 ユーザー入力に対し複数の assistant メッセージを生成するため)。
-const isTurnBoundary = isUserMessage;
+function hasToolImages(c: any): boolean {
+	return c.result?.content?.some((block: any) => block.type === "image") ?? false;
+}
+
+function isGroupBoundary(c: object, config: Config): boolean {
+	if (isUserMessage(c)) return true;
+	if (isSpacer(c)) return false;
+	if (isToolComp(c)) {
+		const row = c as any;
+		if (hasToolImages(row)) return true;
+		const toolConfig = resolveToolConfig(row.toolName, row.args, config);
+		return toolConfig.mode !== "count_only" && !isGroupMember(c, config);
+	}
+	if (isAssistantMessage(c)) {
+		const message = (c as any).lastMessage;
+		return ["error", "aborted", "length"].includes(message?.stopReason) ||
+			(message?.content ?? []).some((block: any) =>
+				(block.type === "text" && block.text?.trim()) ||
+				(block.type === "thinking" && config.hideThinking !== true && block.thinking?.trim()));
+	}
+	// Preserve positions of warnings, custom messages and unknown visible UI rows.
+	return true;
+}
 
 function isGroupMember(c: object, config: Config): boolean {
-	if (!isToolComp(c)) return false;
+	if (!isToolComp(c) || hasToolImages(c)) return false;
 	const anyC = c as any;
 	const toolConfig = resolveToolConfig(anyC.toolName, anyC.args, config);
 	// ツール個別設定 grouping:false のツールはグループ化から除外して単独表示
@@ -140,24 +160,24 @@ function isGroupMember(c: object, config: Config): boolean {
  * grouping 未設定・ツリー未登録・メンバーなしの場合は空配列。
  */
 export function groupOf(owner: object, config: Config): any[] {
-	if (config.grouping !== true) return [];
+	if (config.grouping !== true || !isGroupMember(owner, config)) return [];
 	const container = parentMap.get(owner);
 	if (!container) return [];
 	const cs = childrenMap.get(container) ?? [];
 	const ownerIndex = cs.indexOf(owner);
 	if (ownerIndex === -1) return [];
 
-	// 後方: 直前のターン境界まで遡り、グループ先頭メンバー (start) を探す
+	// Find the leader without crossing visible content.
 	let start = ownerIndex;
 	for (let i = ownerIndex - 1; i >= 0; i--) {
-		if (isTurnBoundary(cs[i])) break;
+		if (isGroupBoundary(cs[i], config)) break;
 		if (isGroupMember(cs[i], config)) start = i;
 	}
 
-	// 前方: 次のターン境界まで全メンバーを収集
+	// Collect this consecutive run; read live row state so streaming text can split it.
 	const members: any[] = [];
 	for (let i = start; i < cs.length; i++) {
-		if (isTurnBoundary(cs[i])) break;
+		if (isGroupBoundary(cs[i], config)) break;
 		if (isGroupMember(cs[i], config)) members.push(cs[i]);
 	}
 	return members;

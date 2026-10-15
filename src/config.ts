@@ -18,7 +18,7 @@ export type Config = Record<string, ToolConfig> & {
   user?: UserConfig;
   /** スキル呼び出し ([skill] 表示) の個別設定: noPadding を指定できる (UserConfig と同一構造) */
   skill?: UserConfig;
-  /** グローバル設定: true で lines モードのツールをターン単位で1枚のカードにまとめる */
+  /** Group consecutive lines-mode tool rows without crossing visible transcript content. */
   grouping?: boolean;
   /** グローバル設定: true でアシスタントメッセージ内の thinking ブロック表示を抑制する */
   hideThinking?: boolean;

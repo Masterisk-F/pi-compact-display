@@ -29,7 +29,7 @@ function makeTool(name: string, args: any, extra: any = {}) {
 }
 
 const userMsg = { constructor: { name: "UserMessageComponent" } };
-const assistantMsg = { constructor: { name: "AssistantMessageComponent" } };
+const assistantMsg = { constructor: { name: "AssistantMessageComponent" }, lastMessage: { content: [{ type: 'text', text: 'Progress boundary' }] } };
 
 const theme = {
 	bg: (name: string, s: string) => `[${name}]${s}[/${name}]`,
@@ -102,7 +102,7 @@ describe('groupOf', () => {
 		expect(groupOf(t3, config)).toEqual([t3]);
 	});
 
-	it('should NOT break the group at an assistant message boundary (thinking / model switch)', () => {
+	it('should break the group at visible assistant progress', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
 		const c = new Container();
 		const t1 = makeTool('bash', { command: 'echo a' });
@@ -110,8 +110,8 @@ describe('groupOf', () => {
 		trackChild(c, t1);
 		trackChild(c, assistantMsg);
 		trackChild(c, t2);
-		expect(groupOf(t1, config)).toEqual([t1, t2]);
-		expect(groupOf(t2, config)).toEqual([t1, t2]);
+		expect(groupOf(t1, config)).toEqual([t1]);
+		expect(groupOf(t2, config)).toEqual([t2]);
 	});
 
 	it('should still group across a count_only tool (invisible) within the turn', () => {
@@ -148,7 +148,7 @@ describe('groupOf', () => {
 		expect(groupOf(w, config)).not.toContain(w);
 	});
 
-	it('should group across a grouping:false tool without including it', () => {
+	it('should split at a grouping:false tool to keep its visible position', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' }, write: { mode: 'lines', grouping: false } });
 		const c = new Container();
 		const t1 = makeTool('bash', { command: 'echo a' });
@@ -157,8 +157,62 @@ describe('groupOf', () => {
 		trackChild(c, t1);
 		trackChild(c, w);
 		trackChild(c, t2);
-		expect(groupOf(t1, config)).toEqual([t1, t2]);
-		expect(groupOf(t2, config)).toEqual([t1, t2]);
+		expect(groupOf(t1, config)).toEqual([t1]);
+		expect(groupOf(t2, config)).toEqual([t2]);
+	});
+
+	it.each([
+		['thinking', { constructor: { name: 'AssistantMessageComponent' }, lastMessage: { content: [{ type: 'thinking', thinking: 'thinking boundary' }] } }],
+		['warning', { constructor: { name: 'Text' } }],
+		['custom message', { constructor: { name: 'CustomMessageComponent' } }],
+		['skill', { constructor: { name: 'SkillInvocationMessageComponent' } }],
+		['default tool', makeTool('write', { path: 'file' })],
+		['image tool', makeTool('read', {}, { result: { content: [{ type: 'image', data: 'image bytes', mimeType: 'image/png' }] } })],
+	])('should not group tools across a visible %s row', (_name, boundary) => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' }, read: { mode: 'count_only' } });
+		const c = new Container();
+		const a = makeTool('bash', { command: 'before' });
+		const b = makeTool('bash', { command: 'after' });
+		for (const row of [a, boundary, b]) trackChild(c, row);
+		expect(groupOf(a, config)).toEqual([a]);
+		expect(groupOf(b, config)).toEqual([b]);
+	});
+
+	it('should group through empty assistant placeholders, spacers and suppressed thinking', () => {
+		const config = makeConfig({ grouping: true, hideThinking: true, bash: { mode: 'lines' } });
+		const c = new Container();
+		const a = makeTool('bash', { command: 'before' });
+		const b = makeTool('bash', { command: 'after' });
+		const empty = { constructor: { name: 'AssistantMessageComponent' }, lastMessage: { content: [{ type: 'text', text: '   ' }, { type: 'toolCall', id: 'call' }] } };
+		const thinking = { constructor: { name: 'AssistantMessageComponent' }, lastMessage: { content: [{ type: 'thinking', thinking: 'hidden reasoning' }] } };
+		for (const row of [a, empty, { constructor: { name: 'Spacer' } }, thinking, b]) trackChild(c, row);
+		expect(groupOf(a, config)).toEqual([a, b]);
+		expect(groupOf(b, config)).toEqual([a, b]);
+	});
+
+	it('should regroup live when an empty assistant placeholder gains visible text', () => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
+		const c = new Container();
+		const a = makeTool('bash', { command: 'before' });
+		const b = makeTool('bash', { command: 'after' });
+		const placeholder = { constructor: { name: 'AssistantMessageComponent' }, lastMessage: { content: [] as any[] } };
+		for (const row of [a, placeholder, b]) trackChild(c, row);
+		expect(groupOf(a, config)).toEqual([a, b]);
+		placeholder.lastMessage.content.push({ type: 'text', text: 'new progress' });
+		expect(groupOf(a, config)).toEqual([a]);
+		expect(groupOf(b, config)).toEqual([b]);
+	});
+
+	it('should keep image-result tools outside aggregated groups', () => {
+		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
+		const c = new Container();
+		const a = makeTool('bash', { command: 'before' });
+		const image = makeTool('bash', {}, { result: { content: [{ type: 'image', data: 'bytes' }] } });
+		const b = makeTool('bash', { command: 'after' });
+		for (const row of [a, image, b]) trackChild(c, row);
+		expect(groupOf(a, config)).toEqual([a]);
+		expect(groupOf(image, config)).toEqual([]);
+		expect(groupOf(b, config)).toEqual([b]);
 	});
 
 	it('should remove reverse parentMap entries on resetChildren (Q1)', () => {
