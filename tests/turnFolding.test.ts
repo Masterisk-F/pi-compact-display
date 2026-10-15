@@ -109,7 +109,7 @@ describe('Whole-turn process folding', () => {
 		expect(chat.render(120).join('\n')).not.toContain('当前：');
 	});
 
-	it('expands progress and count_only tools, and can fold them again', () => {
+	it('expands progress without overriding count_only tools, and can fold again', () => {
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
 		chat.addChild(assistant('EARLY_STEP'));
@@ -120,7 +120,10 @@ describe('Whole-turn process folding', () => {
 		expect(chat.render(120).join('\n')).not.toContain('FULL_READ_CONTENT');
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const expanded = chat.render(120).join('\n');
-		for (const text of ['EARLY_STEP', 'read notes.txt', 'FULL_READ_CONTENT', 'FINAL_ANSWER']) expect(expanded).toContain(text);
+		for (const text of ['EARLY_STEP', 'FINAL_ANSWER']) expect(expanded).toContain(text);
+		expect(expanded).not.toContain('read notes.txt');
+		expect(expanded).not.toContain('FULL_READ_CONTENT');
+		expect((read as any).expanded).toBe(false);
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const folded = chat.render(120).join('\n');
 		expect(folded).not.toContain('EARLY_STEP');
@@ -149,6 +152,8 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('Recovered final answer', 'stop'));
 		expect(chat.render(120).join('\n')).toContain('1 次工具失败');
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
+		expect(chat.render(120).join('\n')).not.toContain('ERROR_DETAIL');
+		tool.setExpanded(true);
 		expect(chat.render(120).join('\n')).toContain('ERROR_DETAIL');
 	});
 
@@ -299,7 +304,7 @@ describe('Whole-turn process folding', () => {
 		const row = assistant('CURRENT_RUNNING_STEP', 'pending');
 		row.updateContent(message('CURRENT_RUNNING_STEP', 'pending') as any, true);
 		chat.addChild(row);
-		const tool = makeTool('read', 'running-read', { path: 'details.txt' });
+		const tool = makeTool('bash', 'running-bash', { command: 'echo details' });
 		tool.updateResult({ content: [{ type: 'text', text: 'PARTIAL_TOOL_DETAIL' }], isError: false }, true);
 		chat.addChild(tool);
 		const card = cards(chat)[0];
@@ -307,13 +312,17 @@ describe('Whole-turn process folding', () => {
 		expect(card.handleMouse({ type: 'click', button: 'left', y: 1 })).toBeUndefined();
 		expect(card.handleMouse({ type: 'click', button: 'left', y: 0 })).toEqual({ handled: true });
 		const open = chat.render(120).join('\n');
-		for (const text of ['EARLIER_RUNNING_STEP', 'CURRENT_RUNNING_STEP', 'read details.txt', 'PARTIAL_TOOL_DETAIL']) expect(open).toContain(text);
+		for (const text of ['EARLIER_RUNNING_STEP', 'CURRENT_RUNNING_STEP', '⚡ bash ×1']) expect(open).toContain(text);
+		expect(open).not.toContain('PARTIAL_TOOL_DETAIL');
+		expect((tool as any).expanded).toBe(false);
 		expect(open).not.toContain('当前：');
 		row.updateContent(message('UPDATED_RUNNING_STEP', 'pending') as any, true);
 		tool.updateResult({ content: [{ type: 'text', text: 'COMPLETE_TOOL_DETAIL' }], isError: false });
 		chat.addChild(assistant('LATER_RUNNING_STEP'));
 		const update = chat.render(120).join('\n');
-		for (const text of ['UPDATED_RUNNING_STEP', 'COMPLETE_TOOL_DETAIL', 'LATER_RUNNING_STEP']) expect(update).toContain(text);
+		for (const text of ['UPDATED_RUNNING_STEP', '⚡ bash ×1', 'LATER_RUNNING_STEP']) expect(update).toContain(text);
+		expect(update).not.toContain('COMPLETE_TOOL_DETAIL');
+		expect((tool as any).expanded).toBe(false);
 		expect(card.isExpanded()).toBe(true);
 		expect(card.handleMouse({ type: 'click', button: 'left', y: 0 })).toEqual({ handled: true });
 		const folded = chat.render(120).join('\n');
@@ -366,6 +375,89 @@ describe('Whole-turn process folding', () => {
 		expect(card.isExpanded()).toBe(true);
 		expect(card.render(120).join('\n')).toContain('已完成');
 		expect(card.render(120).join('\n')).not.toContain('已取消');
+	});
+
+	it('keeps grouped tools folded when the outer process opens', () => {
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		chat.addChild(assistant('GROUPED_PROGRESS'));
+		const a = makeTool('bash', 'group-1', { command: 'echo TOOL_A' });
+		const b = makeTool('bash', 'group-2', { command: 'echo TOOL_B' });
+		a.updateResult({ content: [{ type: 'text', text: 'TOOL_A' }], isError: false });
+		b.updateResult({ content: [{ type: 'text', text: 'TOOL_B' }], isError: false });
+		chat.addChild(a);
+		chat.addChild(b);
+		chat.addChild(assistant('GROUPED_FINAL', 'stop'));
+		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
+		const open = chat.render(120).join('\n');
+		expect(open).toContain('GROUPED_PROGRESS');
+		expect(open.match(/⚡ bash ×2/g)).toHaveLength(1);
+		expect(open).not.toContain('TOOL_A');
+		expect(open).not.toContain('TOOL_B');
+		expect((a as any).expanded).toBe(false);
+		expect((b as any).expanded).toBe(false);
+	});
+
+	it('preserves per-tool line limits and grouping exclusions inside an open process', () => {
+		vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+			turnFolding: true, grouping: true,
+			bash: { mode: 'lines', outputLines: 1, grouping: false, noPadding: true },
+		}));
+		makeTool = loadRenderingExtension(true);
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		const tool = makeTool('bash', 'limited', { command: 'echo limited' });
+		tool.updateResult({ content: [{ type: 'text', text: 'VISIBLE_LINE\nHIDDEN_LINE' }], isError: false });
+		chat.addChild(tool);
+		chat.addChild(assistant('LIMITED_FINAL', 'stop'));
+		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
+		const open = chat.render(120).join('\n');
+		expect(open).toContain('$ echo limited');
+		expect(open).toContain('VISIBLE_LINE');
+		expect(open).not.toContain('HIDDEN_LINE');
+		expect(open).not.toContain('⚡ bash');
+	});
+
+	it('does not replace default-mode tool renderers when the process opens', () => {
+		vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ turnFolding: true, bash: { mode: 'default' } }));
+		makeTool = loadRenderingExtension(true);
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		const renderCall = vi.fn(() => new Text('ORIGINAL_CALL', 0, 0));
+		const renderResult = vi.fn(() => new Text('ORIGINAL_RESULT', 0, 0));
+		const tool = makeTool('bash', 'original', {}, { renderCall, renderResult, renderShell: 'self' });
+		tool.updateResult({ content: [{ type: 'text', text: 'RAW_ORIGINAL' }], isError: false });
+		chat.addChild(tool);
+		chat.addChild(assistant('ORIGINAL_FINAL', 'stop'));
+		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
+		const open = chat.render(120).join('\n');
+		expect(open).toContain('ORIGINAL_CALL');
+		expect(open).toContain('ORIGINAL_RESULT');
+		expect(open).not.toContain('RAW_ORIGINAL');
+		expect((tool as any).expanded).toBe(false);
+	});
+
+	it('preserves independently expanded tools across process collapse, settlement and disable', () => {
+		beginTurnFolding();
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		const tool = makeTool('bash', 'independent', { command: 'echo INNER_DETAIL' });
+		tool.updateResult({ content: [{ type: 'text', text: 'INNER_DETAIL' }], isError: false });
+		chat.addChild(tool);
+		tool.setExpanded(true);
+		const card = cards(chat)[0];
+		card.handleMouse({ type: 'click', button: 'left', y: 0 });
+		expect(chat.render(120).join('\n')).toContain('INNER_DETAIL');
+		collapseTurnFolding();
+		expect((tool as any).expanded).toBe(true);
+		card.handleMouse({ type: 'click', button: 'left', y: 0 });
+		expect(chat.render(120).join('\n')).toContain('INNER_DETAIL');
+		chat.addChild(assistant('INDEPENDENT_FINAL', 'stop'));
+		settleTurnFolding(false);
+		expect((tool as any).expanded).toBe(true);
+		configureTurnFolding(false);
+		expect((tool as any).expanded).toBe(true);
+		expect(chat.render(120).join('\n')).toContain('INNER_DETAIL');
 	});
 
 	it('restores native tool expansion state when turn folding is disabled', () => {

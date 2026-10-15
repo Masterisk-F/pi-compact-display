@@ -7,17 +7,12 @@ import { getParentContainer } from './group';
 // Container tracking boundary: preserve actual rows and wrap only their render method.
 // No transcript entries, tool executors, or model-facing messages are changed.
 const CONTROLLER_KEY = Symbol.for('pi-compact-display.turn-folding');
-const DETAIL_KEY = Symbol.for('pi-compact-display.turn-expanded');
 const ROOTS_KEY = Symbol.for('pi-compact-display.turn-roots');
 
 type Row = Component & {
 	lastMessage?: any;
 	isStreaming?: boolean;
-	rendererState?: object;
-	toolName?: string;
 	result?: { isError?: boolean; content?: Array<{ type: string; text?: string }> };
-	expanded?: boolean;
-	setExpanded?: (expanded: boolean) => void;
 	ui?: { requestRender(): void };
 };
 type Parent = { children: Component[]; invalidate(): void; requestRender?: () => void };
@@ -66,10 +61,6 @@ export function collapseTurnFolding(): number {
 	return globals()[CONTROLLER_KEY]?.collapseAll() ?? 0;
 }
 
-export function isTurnDetailExpanded(state: object): boolean {
-	return (state as Record<symbol, unknown>)[DETAIL_KEY] === true;
-}
-
 function textOf(row: Row): string {
 	return (row.lastMessage?.content ?? [])
 		.filter((block: any) => block.type === 'text')
@@ -94,7 +85,6 @@ class TurnProcessCard implements Component {
 		this.running = false;
 		this.settled = aborted ? 'aborted' : 'completed';
 		this.expanded = false;
-		for (const row of this.rows) this.syncTool(row);
 		this.parent.invalidate();
 		this.requestRender();
 	}
@@ -131,19 +121,9 @@ class TurnProcessCard implements Component {
 	private setDetailsExpanded(expanded: boolean): void {
 		if (this.expanded === expanded) return;
 		this.expanded = expanded;
-		for (const row of this.rows) this.syncTool(row);
+		// Outer visibility is independent: never change nested tool expansion or render configuration.
 		this.parent.invalidate();
 		this.requestRender();
-	}
-
-	syncTool(row: Row): void {
-		if (!isToolComp(row) || !row.rendererState) return;
-		const state = row.rendererState as Record<symbol, unknown>;
-		const expanded = this.expanded;
-		if (state[DETAIL_KEY] === expanded && row.expanded === expanded) return;
-		state[DETAIL_KEY] = expanded;
-		row.setExpanded?.(expanded);
-		row.invalidate();
 	}
 
 	private requestRender(): void {
@@ -189,7 +169,7 @@ class TurnController {
 	private running = false;
 	private activeTurns = new Set<TurnProcessCard>();
 	private turns = new Map<Parent, TurnProcessCard>();
-	private wrapped = new Map<Row, { parent: Parent; turn: TurnProcessCard; render: Row['render']; expanded: boolean | undefined }>();
+	private wrapped = new Map<Row, { parent: Parent; turn: TurnProcessCard; render: Row['render'] }>();
 
 	track(parent: Parent, child: Component): void {
 		if (isUserMessage(child)) {
@@ -209,9 +189,8 @@ class TurnController {
 		turn.add(row, this.running);
 		if (this.running) this.activeTurns.add(turn);
 		const original = row.render;
-		this.wrapped.set(row, { parent, turn, render: original, expanded: row.expanded });
+		this.wrapped.set(row, { parent, turn, render: original });
 		row.render = function(width) {
-			turn.syncTool(row);
 			return turn.shouldShow(row) ? original.call(this, width) : [];
 		};
 	}
@@ -221,11 +200,6 @@ class TurnController {
 		const entry = this.wrapped.get(row);
 		if (!entry || entry.parent !== parent) return;
 		row.render = entry.render;
-		if (row.rendererState) {
-			delete (row.rendererState as Record<symbol, unknown>)[DETAIL_KEY];
-			if (entry.expanded !== undefined) row.setExpanded?.(entry.expanded);
-			row.invalidate();
-		}
 		entry.turn.rows.splice(entry.turn.rows.indexOf(row), 1);
 		this.wrapped.delete(row);
 		if (!entry.turn.rows.length) this.removeCard(parent, entry.turn);
