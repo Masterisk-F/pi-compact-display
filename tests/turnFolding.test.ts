@@ -331,19 +331,36 @@ describe('Whole-turn process folding', () => {
 		expect(folded).not.toContain('COMPLETE_TOOL_DETAIL');
 	});
 
-	it('keeps the live preview short and sanitized on narrow terminals', () => {
+	it('shows the whole current work on multiple lines and sanitizes it on narrow terminals', () => {
 		beginTurnFolding();
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
 		chat.addChild(assistant('OLD_STEP'));
 		chat.addChild(assistant('\u001b]8;;https://example.com\u0007最新工作\u001b]8;;\u0007'.repeat(100)));
 		const lines = cards(chat)[0].render(40);
-		expect(lines).toHaveLength(2);
+		// The preview is the latest progress text in full, wrapped to the terminal width
+		// instead of being cut to one truncated line.
+		expect(lines.length).toBeGreaterThan(2);
 		expect(lines[1]).toContain('当前：最新工作');
 		// truncateToWidth may add safe SGR resets; original OSC links must not pass through.
-		expect(lines[1]).not.toContain('\u001b]');
-		expect(lines[1]).not.toContain('https://example.com');
-		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+		for (const line of lines) {
+			expect(line).not.toContain('\u001b]');
+			expect(line).not.toContain('https://example.com');
+			expect(visibleWidth(line)).toBeLessThanOrEqual(40);
+		}
+	});
+
+	it('keeps the wrapped current work bounded to the latest progress row', () => {
+		beginTurnFolding();
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		chat.addChild(assistant('EARLIER_STEP_LINE_ONE\nEARLIER_STEP_LINE_TWO'));
+		chat.addChild(assistant('LATEST_LINE_ONE\nLATEST_LINE_TWO\nLATEST_LINE_THREE'));
+		const text = cards(chat)[0].render(60).join('\n');
+		expect(text).toContain('当前：LATEST_LINE_ONE');
+		expect(text).toContain('LATEST_LINE_TWO');
+		expect(text).toContain('LATEST_LINE_THREE');
+		expect(text).not.toContain('EARLIER_STEP');
 	});
 
 	it('does not relabel or refold an older completed turn when a later run is cancelled', () => {

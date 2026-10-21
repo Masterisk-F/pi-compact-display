@@ -1,4 +1,4 @@
-import { truncateToWidth, type Component, type TuiMouseEvent, type TuiMouseEventResult } from '@earendil-works/pi-tui';
+import { truncateToWidth, wrapTextWithAnsi, type Component, type TuiMouseEvent, type TuiMouseEventResult } from '@earendil-works/pi-tui';
 import { isAssistantMessage, isToolComp, isUserMessage } from './componentUtils';
 import { sanitizeToolText } from './sanitize';
 import { getParentContainer } from './group';
@@ -158,10 +158,18 @@ class TurnProcessCard implements Component {
 		const header = `${this.expanded ? '▼' : '▶'} 执行过程 · ${status} · ${progress.length} 条进度 · ${tools.length} 次工具调用${failures ? ` · ${failures} 次工具失败` : ''}${failedResponses ? ` · ${failedResponses} 次响应异常` : ''}`;
 		const lines = [truncateToWidth(header, width, '…')];
 		if (!this.expanded && !final && !this.settled && progress.length) {
-			const latest = sanitizeToolText(textOf(progress[progress.length - 1])).replace(/\s+/g, ' ').trim();
-			lines.push(truncateToWidth(`当前：${latest}`, width, '…'));
+			lines.push(...this.currentLines(progress[progress.length - 1], width));
 		}
 		return lines;
+	}
+
+	// The collapsed card stands in for the latest progress row, so it shows that row's
+	// whole text rather than a one-line digest: native rendering would show the same
+	// text, and wrapping only keeps it inside the terminal.
+	private currentLines(row: Row, width: number): string[] {
+		const text = sanitizeToolText(textOf(row)).trim();
+		if (!text) return [];
+		return wrapTextWithAnsi(`当前：${text}`, width).map(line => truncateToWidth(line, width, '…'));
 	}
 }
 

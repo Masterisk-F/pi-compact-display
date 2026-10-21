@@ -265,7 +265,7 @@ This example folds routine reads into counts, aggregates consecutive tool calls,
 
 ### Running, opened, and finished
 
-- **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts and a one-line preview of the latest assistant progress text; it is not a model-generated summary.
+- **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts plus the latest assistant progress text in full, wrapped to the terminal width; it is not a model-generated summary and is not truncated to one line.
 - **Manually opened:** Click that turn's header in **fullscreen TUI mode**. New progress and tool results do not close it. Click again to fold that turn.
 - **Finished:** When the agent actually settles, the process automatically folds and the final response stays fully visible below it. Completion of a single tool or model response is not the auto-collapse boundary.
 - **Errors and cancellation:** The card labels cancellation, response errors, or truncation and counts tool failures. Opening it still respects each tool's display mode; `count_only` error text stays hidden.
