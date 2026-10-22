@@ -67,7 +67,7 @@ Create a configuration file named `config.json` at the following location:
 
 ### Configuration Structure
 
-The same JSON object holds global switches (`turnFolding`, `grouping`, `hideThinking`), special padding settings (`user`, `skill`), and per-tool settings. Tool keys can be built-in names, extension names, or gateway sub-tool names.
+The same JSON object holds global switches (`turnFolding`, `turnPreviewRows`, `grouping`, `hideThinking`), special padding settings (`user`, `skill`), and per-tool settings. Tool keys can be built-in names, extension names, or gateway sub-tool names.
 
 ```json
 {
@@ -84,9 +84,10 @@ The same JSON object holds global switches (`turnFolding`, `grouping`, `hideThin
 | Key | Default | Controls |
 | --- | --- | --- |
 | `turnFolding` | `false` | Outer process cards; TUI only. Requires Pi >=1.1.0. |
+| `turnPreviewRows` | `3` | How many of the most recent rows (progress text and tool rows) a collapsed process card keeps visible. Only effective with `turnFolding`. |
 | `grouping` | `false` | Inner aggregation of consecutive `lines` calls; independent of turn folding. |
 | `hideThinking` | `false` | Hide thinking content and its indicator; does not remove it from model input. |
-| `default` | `{ "mode": "default" }` | Fallback **tool configuration** for names without an explicit match. Does not set the global switches or `user`/`skill`. |
+| `default` | `{ "mode": "default" }` | Fallback **tool configuration** for names without an explicit match. Does not set the global switches, `turnPreviewRows`, or `user`/`skill`. |
 
 After any config change, restart Pi or use `/reload`. Keep the file valid JSON (no comments or trailing commas); a missing or unparsable file is treated as empty configuration.
 
@@ -254,6 +255,7 @@ This example folds routine reads into counts, aggregates consecutive tool calls,
 ```json
 {
   "turnFolding": true,
+  "turnPreviewRows": 3,
   "grouping": true,
   "read": { "mode": "count_only" },
   "bash": { "mode": "lines", "outputLines": 4, "noPadding": true },
@@ -265,7 +267,8 @@ This example folds routine reads into counts, aggregates consecutive tool calls,
 
 ### Running, opened, and finished
 
-- **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts plus the latest assistant progress text in full, wrapped to the terminal width; it is not a model-generated summary and is not truncated to one line.
+- **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts plus the **three most recent rows** (`turnPreviewRows`), rendered at their normal transcript positions: assistant progress text in full and wrapped to the terminal width, tool rows through their own renderer, so `grouping`, `count_only` and `outputLines` still decide how folded they look. It is not a model-generated summary.
+- **Preview count:** Set `turnPreviewRows` to keep a different number of rows (for example `1` for the old latest-only behaviour, or `5`). Values that are not integers of at least 1 fall back to the default of `3`. Rows that render nothing, such as `count_only` calls or the non-leader members of a tool group, do not use up a slot; image results and the final answer always stay visible and never consume one either. Only the newest progress row carries the `当前：` label.
 - **Manually opened:** Click that turn's header in **fullscreen TUI mode**. New progress and tool results do not close it. Click again to fold that turn.
 - **Finished:** When the agent actually settles, the process automatically folds and the final response stays fully visible below it. Completion of a single tool or model response is not the auto-collapse boundary.
 - **Errors and cancellation:** The card labels cancellation, response errors, or truncation and counts tool failures. Opening it still respects each tool's display mode; `count_only` error text stays hidden.
@@ -297,6 +300,16 @@ With grouping enabled, opened processes preserve the visible sequence below. The
 Final answer (always visible)
 ```
 
+A **folded** card (`▶`) instead shows the same header plus only the last `turnPreviewRows` rows, with the newest progress text labelled `当前：`. Earlier rows stay folded, and tool rows still follow their own display mode, so a grouped `lines` call contributes only its `⚡ bash ×N` header:
+
+```text
+▶ 执行过程 · 已完成 · 2 条进度 · 3 次工具调用
+  ⚡ bash ×2
+  Applying the targeted fix…
+  当前：Verifying the change against the tests
+Final answer (always visible)
+```
+
 ### Disable and compatibility
 
 Set `turnFolding` to `false` (or remove it) and use `/reload` to remove process cards and restore the existing per-tool display. Other options such as `grouping` stay in effect. Saved sessions reconstruct their process cards when replayed; no history is deleted.
@@ -323,3 +336,20 @@ Without TUI turn folding, `count_only` summaries such as `⚡ read(1)` are strip
 - **No four-line preview after opening a process:** A grouped `lines` call shows a count header until you expand the inner group. To see an unexpanded result preview, set that tool's `grouping` to `false` (or disable global grouping).
 - **An unlisted tool is hidden or grouped:** Check the `default` configuration key. To preserve a specific extension's renderer, give its tool an explicit `{ "mode": "default" }`.
 - **Startup reports a conflicting tool:** Do not load both npm and source copies. The renderer-only implementation in this branch does not replace the existing `bash` executor or RTK behavior.
+- **`/reload` errors with `... is not a function` after you rebuilt:** See the maintainer note below; it means a new export was added to a module Pi keeps cached across reloads.
+
+## Maintainer note: adding exports safely (reload staleness)
+
+Pi loads extensions through jiti with the `@earendil-works/*` packages aliased to native files. After a rebuild plus `/reload`, measured behaviour is:
+
+| Module kind | On `/reload` |
+| --- | --- |
+| Imports an aliased package (e.g. `@earendil-works/pi-tui`) | Re-evaluated, sees the new file. |
+| Imports only Node builtins (e.g. `fs`) | Served from the native ESM cache, keeps its **old** exports. |
+| `src/index.ts` (entry) | Always re-evaluated. |
+
+So a **new** export added to a builtin-only module and imported by the entry is `undefined` after `/reload`, which is exactly how `resolveTurnPreviewRows` in `config.ts` crashed with `(@earendil-works, _config.resolveTurnPreviewRows) is not a function`. `tests/reloadSafety.test.ts` pins the rule:
+
+- Put new entry-facing exports in `turn.ts` (aliased, always re-evaluated), not in `config.ts`/`state.ts`/`contextUtils.ts`/`componentUtils.ts` (builtin-only, cached).
+- Read values from builtin-only modules as **data** rather than by importing a new function; that is why the resolver takes `config.turnPreviewRows` instead of the config object.
+- Never rely on an old `dist/` file being replaced to fix a reload error: rebuild first, then `/reload`.

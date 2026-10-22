@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { loadConfig, getEffectiveToolName, resolveToolConfig } from '../src/config';
+import { DEFAULT_TURN_PREVIEW_ROWS, resolveTurnPreviewRows } from '../src/turn';
 import fs from 'fs';
 
 vi.mock('fs');
@@ -115,6 +116,16 @@ describe('loadConfig', () => {
     for (const enabled of [true, false]) {
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ turnFolding: enabled, default: { mode: 'lines' } }));
       expect(loadConfig('/valid/path.json').turnFolding).toBe(enabled);
+    }
+  });
+
+  it('should keep the collapsed preview row count independent of the default tool configuration', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ default: { mode: 'lines' } }));
+    expect(loadConfig('/valid/path.json').turnPreviewRows).toBeUndefined();
+    for (const rows of [1, 3, 5]) {
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ turnPreviewRows: rows, default: { mode: 'lines' } }));
+      expect(loadConfig('/valid/path.json').turnPreviewRows).toBe(rows);
     }
   });
 
@@ -309,5 +320,31 @@ describe('resolveToolConfig', () => {
     // args.describe no longer produces mcp:describe, so effectiveName is 'mcp'
     expect(getEffectiveToolName('mcp', { describe: 'tool' })).toBe('mcp');
     expect(resolveToolConfig('mcp', { describe: 'tool' }, config).mode).toBe('count_only');
+  });
+});
+
+describe('resolveTurnPreviewRows', () => {
+  const load = (extra: object) => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(extra));
+    return loadConfig('/valid/path.json');
+  };
+
+  it('should default to the three most recent rows', () => {
+    expect(DEFAULT_TURN_PREVIEW_ROWS).toBe(3);
+    expect(resolveTurnPreviewRows(load({}).turnPreviewRows)).toBe(3);
+    expect(resolveTurnPreviewRows(load({ default: { mode: 'lines' } }).turnPreviewRows)).toBe(3);
+    expect(resolveTurnPreviewRows(undefined)).toBe(3);
+  });
+
+  it('should honor an explicit positive integer', () => {
+    expect(resolveTurnPreviewRows(load({ turnPreviewRows: 1 }).turnPreviewRows)).toBe(1);
+    expect(resolveTurnPreviewRows(load({ turnPreviewRows: 8 }).turnPreviewRows)).toBe(8);
+  });
+
+  it('should fall back to the default for values that would hide the latest work', () => {
+    for (const invalid of [0, -2, 1.5, '3', null, true]) {
+      expect(resolveTurnPreviewRows(load({ turnPreviewRows: invalid }).turnPreviewRows)).toBe(3);
+    }
   });
 });

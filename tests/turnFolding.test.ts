@@ -5,6 +5,7 @@ import { AssistantMessageComponent, UserMessageComponent, initTheme } from '@ear
 import { loadRenderingExtension } from './renderingHarness';
 import extension from '../src/index';
 import { beginTurnFolding, collapseTurnFolding, configureTurnFolding, settleTurnFolding } from '../src/turn';
+import { loadConfig } from '../src/config';
 
 vi.mock('node:fs');
 vi.mock('fs');
@@ -59,8 +60,13 @@ describe('Whole-turn process folding', () => {
 		expect(text).toContain('执行过程');
 		expect(text).toContain('进行中');
 		expect(text).toContain('当前：LATEST_PROGRESS');
-		expect(text).not.toContain('OLD_PROGRESS');
+		// The default preview keeps the last three rows: this tool row is still visible
+		// through its own renderer (grouping folded it to a count header), and its output
+		// stays hidden.
+		expect(text).toContain('⚡ bash ×1');
 		expect(text).not.toContain('RAW_TOOL_OUTPUT');
+		// The three newest rows are the two progress rows and the tool row.
+		expect(text).toContain('OLD_PROGRESS');
 		// A terminal model response alone is not the settlement boundary: retries or
 		// extensions may still continue the same run.
 		chat.addChild(assistant('FINAL_RESULT', 'stop'));
@@ -71,7 +77,9 @@ describe('Whole-turn process folding', () => {
 		expect(folded).toContain('执行过程');
 		expect(folded).toContain('已完成');
 		expect(folded).toContain('FINAL_RESULT');
-		expect(folded).not.toContain('OLD_PROGRESS');
+		// The final answer renders natively and does not consume a preview slot.
+		expect(folded).toContain('当前：LATEST_PROGRESS');
+		expect(folded).toContain('OLD_PROGRESS');
 		expect(folded).not.toContain('RAW_TOOL_OUTPUT');
 		expect(chat.children).toContain(tool);
 	});
@@ -86,7 +94,8 @@ describe('Whole-turn process folding', () => {
 		const text = chat.render(120).join('\n');
 		expect(text).toContain('已完成');
 		expect(text).toContain('FINAL_RESULT');
-		expect(text).not.toContain('MIDWAY');
+		// With a single progress row, the default three-row preview keeps it visible.
+		expect(text).toContain('当前：MIDWAY');
 		expect(answer).toEqual(message('FINAL_RESULT\nAll checks passed.', 'stop'));
 		expect(progress).toEqual(message('MIDWAY'));
 	});
@@ -116,8 +125,14 @@ describe('Whole-turn process folding', () => {
 		const read = makeTool('read', 'read-1', { path: 'notes.txt' });
 		read.updateResult({ content: [{ type: 'text', text: 'FULL_READ_CONTENT' }], isError: false });
 		chat.addChild(read);
+		chat.addChild(assistant('LATER_STEP'));
 		chat.addChild(assistant('FINAL_ANSWER', 'stop'));
 		expect(chat.render(120).join('\n')).not.toContain('FULL_READ_CONTENT');
+		// The default three-row preview keeps the two progress rows and the read row visible.
+		const folded = chat.render(120).join('\n');
+		expect(folded).toContain('EARLY_STEP');
+		expect(folded).toContain('当前：LATER_STEP');
+		expect(folded).not.toContain('read notes.txt');
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const expanded = chat.render(120).join('\n');
 		for (const text of ['EARLY_STEP', 'FINAL_ANSWER']) expect(expanded).toContain(text);
@@ -125,10 +140,10 @@ describe('Whole-turn process folding', () => {
 		expect(expanded).not.toContain('FULL_READ_CONTENT');
 		expect((read as any).expanded).toBe(false);
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
-		const folded = chat.render(120).join('\n');
-		expect(folded).not.toContain('EARLY_STEP');
-		expect(folded).not.toContain('FULL_READ_CONTENT');
-		expect(folded).toContain('FINAL_ANSWER');
+		const refolded = chat.render(120).join('\n');
+		expect(refolded).toContain('EARLY_STEP');
+		expect(refolded).not.toContain('FULL_READ_CONTENT');
+		expect(refolded).toContain('FINAL_ANSWER');
 	});
 
 	it.each(['error', 'aborted', 'length'])('keeps a terminal %s visible', reason => {
@@ -140,7 +155,9 @@ describe('Whole-turn process folding', () => {
 		const text = chat.render(120).join('\n');
 		expect(text).toContain('Partial response');
 		expect(text).toContain(reason === 'error' ? 'terminal failure' : reason === 'aborted' ? 'terminal failure' : 'truncated');
-		expect(text).not.toContain('PROGRESS');
+		// The terminal row is the final row: it renders natively, and the earlier progress
+		// row stays visible inside the default three-row preview.
+		expect(text).toContain('当前：PROGRESS');
 	});
 
 	it('reports failed tools even when a later final answer succeeds', () => {
@@ -168,8 +185,7 @@ describe('Whole-turn process folding', () => {
 		expect(cards(chat)).toHaveLength(2);
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const text = chat.render(120).join('\n');
-		for (const visible of ['Question 1', 'Question 2', 'ANSWER_1', 'ANSWER_2', 'PROGRESS_1', 'IMPORTANT_UI_WARNING']) expect(text).toContain(visible);
-		expect(text).not.toContain('PROGRESS_2');
+		for (const visible of ['Question 1', 'Question 2', 'ANSWER_1', 'ANSWER_2', 'PROGRESS_1', 'PROGRESS_2', 'IMPORTANT_UI_WARNING']) expect(text).toContain(visible);
 	});
 
 	it('preserves image-result rows instead of hiding their previews', () => {
@@ -209,14 +225,15 @@ describe('Whole-turn process folding', () => {
 		makeTool = loadRenderingExtension(true);
 		expect(cards(chat)).toHaveLength(1);
 		chat.addChild(assistant('RESTORABLE_FINAL', 'stop'));
-		expect(chat.render(120).join('\n')).not.toContain('RESTORABLE_PROGRESS');
+		// Rebuilding keeps the folded preview: the progress row is still inside three rows.
+		expect(chat.render(120).join('\n')).toContain('RESTORABLE_PROGRESS');
 		chat.clear();
 		chat.addChild(new UserMessageComponent('Restored question'));
 		chat.addChild(assistant('RESTORED_PROGRESS'));
 		chat.addChild(assistant('RESTORED_FINAL', 'stop'));
 		expect(cards(chat)).toHaveLength(1);
 		expect(chat.render(120).join('\n')).toContain('RESTORED_FINAL');
-		expect(chat.render(120).join('\n')).not.toContain('RESTORED_PROGRESS');
+		expect(chat.render(120).join('\n')).toContain('当前：RESTORED_PROGRESS');
 	});
 
 	it('does not create process cards for a simple final-only answer or when disabled', () => {
@@ -244,7 +261,8 @@ describe('Whole-turn process folding', () => {
 		const expanded = chat.render(120).join('\n');
 		expect(expanded).toContain('COMPLETED_DETAIL_1');
 		expect(expanded).toContain('COMPLETED_DETAIL_2');
-		expect(expanded).not.toContain('COMPLETED_DETAIL_3');
+		// The third turn is folded and shows its detail as the current preview.
+		expect(expanded).toContain('当前：COMPLETED_DETAIL_3');
 		beginTurnFolding();
 		chat.addChild(new UserMessageComponent('Running question'));
 		chat.addChild(assistant('RUNNING_DETAIL'));
@@ -252,7 +270,7 @@ describe('Whole-turn process folding', () => {
 		for (let i = 0; i < 3; i++) expect(collapseTurnFolding()).toBe(0);
 		const text = chat.render(120).join('\n');
 		for (const id of [1, 2, 3]) {
-			expect(text).not.toContain(`COMPLETED_DETAIL_${id}`);
+			expect(text).toContain(`COMPLETED_DETAIL_${id}`);
 			expect(text).toContain(`COMPLETED_ANSWER_${id}`);
 		}
 		expect(text).toContain('当前：RUNNING_DETAIL');
@@ -276,10 +294,13 @@ describe('Whole-turn process folding', () => {
 		expect(cards(chat)[0]).not.toHaveProperty('setExpanded');
 		// Replay Pi's native Ctrl+O dispatch: only top-level expandable components.
 		for (const child of chat.children as any[]) child.setExpanded?.(true);
+		// Ctrl+O never opens a process card; it still expands the tool itself.
+		expect(cards(chat)[0].isExpanded()).toBe(false);
 		const text = chat.render(120).join('\n');
-		expect(text).not.toContain('HIDDEN_PROGRESS');
-		expect(text).not.toContain('RAW_DETAIL');
+		expect(text).toContain('当前：HIDDEN_PROGRESS');
+		expect(text).toContain('⚡ bash ×1');
 		expect(text).toContain('FINAL_ANSWER');
+		expect((tool as any).expanded).toBe(true);
 	});
 
 	it('automatically refolds a finished run even if it was expanded before completion', () => {
@@ -292,7 +313,8 @@ describe('Whole-turn process folding', () => {
 		expect(chat.render(120).join('\n')).not.toContain('当前：');
 		chat.addChild(assistant('ANSWER', 'stop'));
 		settleTurnFolding(false);
-		expect(chat.render(120).join('\n')).not.toContain('DETAIL');
+		expect(cards(chat)[0].isExpanded()).toBe(false);
+		expect(chat.render(120).join('\n')).toContain('当前：DETAIL');
 		expect(chat.render(120).join('\n')).toContain('ANSWER');
 	});
 
@@ -337,30 +359,32 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(new UserMessageComponent('Question'));
 		chat.addChild(assistant('OLD_STEP'));
 		chat.addChild(assistant('\u001b]8;;https://example.com\u0007最新工作\u001b]8;;\u0007'.repeat(100)));
-		const lines = cards(chat)[0].render(40);
+		const lines = chat.render(40);
 		// The preview is the latest progress text in full, wrapped to the terminal width
 		// instead of being cut to one truncated line.
 		expect(lines.length).toBeGreaterThan(2);
-		expect(lines[1]).toContain('当前：最新工作');
+		const current = lines.findIndex(line => line.includes('当前：最新工作'));
+		expect(current).toBeGreaterThan(0);
 		// truncateToWidth may add safe SGR resets; original OSC links must not pass through.
 		for (const line of lines) {
-			expect(line).not.toContain('\u001b]');
+			expect(line).not.toContain('\u001b]8');
 			expect(line).not.toContain('https://example.com');
 			expect(visibleWidth(line)).toBeLessThanOrEqual(40);
 		}
 	});
 
-	it('keeps the wrapped current work bounded to the latest progress row', () => {
+	it('labels only the latest progress row and wraps every preview row', () => {
 		beginTurnFolding();
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
 		chat.addChild(assistant('EARLIER_STEP_LINE_ONE\nEARLIER_STEP_LINE_TWO'));
 		chat.addChild(assistant('LATEST_LINE_ONE\nLATEST_LINE_TWO\nLATEST_LINE_THREE'));
-		const text = cards(chat)[0].render(60).join('\n');
+		const text = chat.render(60).join('\n');
+		expect(text).toContain('EARLIER_STEP_LINE_ONE');
 		expect(text).toContain('当前：LATEST_LINE_ONE');
 		expect(text).toContain('LATEST_LINE_TWO');
 		expect(text).toContain('LATEST_LINE_THREE');
-		expect(text).not.toContain('EARLIER_STEP');
+		expect(text.match(/当前：/g)).toHaveLength(1);
 	});
 
 	it('does not relabel or refold an older completed turn when a later run is cancelled', () => {
@@ -516,7 +540,9 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('CONFIG_FINAL', 'stop'));
 		const rendered = chat.render(120).join('\n');
 		expect(cards(chat).length > 0).toBe(folded);
-		expect(rendered.includes('CONFIG_PROGRESS')).toBe(!folded);
+		// Folded cards keep the recent rows visible, but label them as the current preview.
+		expect(rendered.includes('当前：CONFIG_PROGRESS')).toBe(folded);
+		expect(rendered.includes('CONFIG_PROGRESS')).toBe(true);
 		expect(rendered).toContain('CONFIG_FINAL');
 		expect(shortcut).toHaveBeenCalledTimes(enabled === true ? 1 : 0);
 		expect(registerTool).not.toHaveBeenCalled();
@@ -548,5 +574,87 @@ describe('Whole-turn process folding', () => {
 		settleTurnFolding(true);
 		expect(chat.render(120).join('\n')).toContain('已取消');
 		expect(chat.render(120).join('\n')).not.toContain('进行中');
+	});
+
+	describe('configurable collapsed preview', () => {
+		// Rows added before the card exists are tracked through the addChild patch, which
+		// reads the live controller options; rebuild the chat after reconfiguring.
+		const rebuild = (options: Parameters<typeof configureTurnFolding>[1]) => {
+			configureTurnFolding(false);
+			configureTurnFolding(true, options);
+			const chat = createChat();
+			chat.addChild(new UserMessageComponent('Question'));
+			chat.addChild(assistant('ROW_1'));
+			chat.addChild(assistant('ROW_2'));
+			chat.addChild(assistant('ROW_3'));
+			chat.addChild(assistant('ROW_4'));
+			chat.addChild(assistant('FINAL', 'stop'));
+			return chat.render(120).join('\n');
+		};
+
+		it('keeps the three most recent rows by default', () => {
+			const text = rebuild({});
+			expect(text).toContain('当前：ROW_4');
+			expect(text).toContain('ROW_3');
+			expect(text).toContain('ROW_2');
+			expect(text).not.toContain('ROW_1');
+		});
+
+		it('keeps only one row when configured to 1', () => {
+			const text = rebuild({ previewRows: 1 });
+			expect(text).toContain('当前：ROW_4');
+			for (const hidden of ['ROW_1', 'ROW_2', 'ROW_3']) expect(text).not.toContain(hidden);
+		});
+
+		it('keeps every row when configured higher than the row count', () => {
+			const text = rebuild({ previewRows: 10 });
+			for (const visible of ['ROW_1', 'ROW_2', 'ROW_3', 'ROW_4']) expect(text).toContain(visible);
+			expect(text.match(/当前：/g)).toHaveLength(1);
+		});
+
+		it('does not spend a slot on rows that render nothing', () => {
+			// count_only rows are invisible: three progress rows must still fit.
+			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+				turnFolding: true, grouping: true,
+				default: { mode: 'lines', noPadding: true },
+				read: { mode: 'count_only' },
+			}));
+			makeTool = loadRenderingExtension(true);
+			configureTurnFolding(false);
+			configureTurnFolding(true, { previewRows: 3, config: loadConfig('/x') });
+			const chat = createChat();
+			chat.addChild(new UserMessageComponent('Question'));
+			chat.addChild(assistant('PROGRESS_1'));
+			const read = makeTool('read', 'hidden-read', { path: 'a.txt' });
+			read.updateResult({ content: [{ type: 'text', text: 'READ_BODY' }], isError: false });
+			chat.addChild(read);
+			chat.addChild(assistant('PROGRESS_2'));
+			chat.addChild(assistant('PROGRESS_3'));
+			const text = chat.render(120).join('\n');
+			for (const visible of ['PROGRESS_1', 'PROGRESS_2', '当前：PROGRESS_3']) expect(text).toContain(visible);
+			expect(text).not.toContain('READ_BODY');
+		});
+
+		it('reads turnPreviewRows from the config file', () => {
+			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+				turnFolding: true, turnPreviewRows: 2, default: { mode: 'lines' },
+			}));
+			const handlers = new Map<string, Function>();
+			extension({
+				on: (name: string, handler: Function) => handlers.set(name, handler),
+				registerShortcut: vi.fn(),
+				registerToolRenderer: vi.fn(),
+			} as any);
+			handlers.get('session_start')?.({}, { mode: 'tui' });
+			const chat = createChat();
+			chat.addChild(new UserMessageComponent('Question'));
+			chat.addChild(assistant('ROW_1'));
+			chat.addChild(assistant('ROW_2'));
+			chat.addChild(assistant('ROW_3'));
+			const text = chat.render(120).join('\n');
+			expect(text).toContain('当前：ROW_3');
+			expect(text).toContain('ROW_2');
+			expect(text).not.toContain('ROW_1');
+		});
 	});
 });

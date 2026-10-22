@@ -24,6 +24,12 @@ export type Config = Record<string, ToolConfig> & {
   hideThinking?: boolean;
   /** TUI-only (Pi 1.2.0 tested): fold intermediate assistant text/tools; final response stays visible. */
   turnFolding?: boolean;
+  /**
+   * 折りたたんだ過程カードで見えているまま残す直近の行数 (アシスタントの進捗テキストとツール行)。
+   * 既定は 3。ツールは各ツールの設定どおり (グループ化・count_only など) に折りたたんで表示する。
+   * 解釈は turn.ts が持つ (この値は型と Proxy の除外のみを担う)。
+   */
+  turnPreviewRows?: number;
 };
 
 export function loadConfig(configPath: string): Config {
@@ -50,7 +56,7 @@ export function loadConfig(configPath: string): Config {
       if (prop in target) {
         return target[prop];
       }
-      if (prop === 'user' || prop === 'skill' || prop === 'grouping' || prop === 'hideThinking' || prop === 'turnFolding') {
+      if (prop === 'user' || prop === 'skill' || prop === 'grouping' || prop === 'hideThinking' || prop === 'turnFolding' || prop === 'turnPreviewRows') {
         return undefined;
       }
       if ('default' in target) {

@@ -12,7 +12,7 @@ import { isSpacer, isUserMessage, isAssistantMessage, isSkillInvocation } from "
 import { SummaryTracker } from "./state";
 import { registerToolRenderers } from "./tools";
 import { trackChild, untrackChild, resetChildren } from "./group";
-import { beginTurnFolding, configureTurnFolding, trackTurnChild, untrackTurnChild, clearTurnChildren, settleTurnFolding, collapseTurnFolding } from "./turn";
+import { beginTurnFolding, configureTurnFolding, resolveTurnPreviewRows, trackTurnChild, untrackTurnChild, clearTurnChildren, settleTurnFolding, collapseTurnFolding } from "./turn";
 import path from "path";
 import os from "os";
 
@@ -32,7 +32,10 @@ export default function (pi: ExtensionAPI) {
 	// No public whole-turn renderer API exists; opt in only after TUI session startup.
 	configureTurnFolding(false);
 	pi.on("session_start", (_event, ctx) => {
-		configureTurnFolding(config.turnFolding === true && ctx.mode === "tui");
+		configureTurnFolding(config.turnFolding === true && ctx.mode === "tui", {
+			previewRows: resolveTurnPreviewRows(config.turnPreviewRows),
+			config,
+		});
 	});
 	pi.on("session_shutdown", () => configureTurnFolding(false));
 	pi.on("agent_start", () => beginTurnFolding());
