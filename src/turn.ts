@@ -32,7 +32,7 @@ type Parent = { children: Component[]; invalidate(): void; requestRender?: () =>
 
 function globals(): Record<symbol, any> { return globalThis as unknown as Record<symbol, any>; }
 
-/** Default number of recent rows a collapsed process card keeps visible. */
+/** Default number of recent rows a collapsed process card keeps visible while running. */
 export const DEFAULT_TURN_PREVIEW_ROWS = 3;
 
 /**
@@ -48,7 +48,7 @@ export function resolveTurnPreviewRows(value: unknown): number {
 }
 
 export interface TurnFoldingOptions {
-	/** Rows a collapsed card keeps visible. Defaults to `DEFAULT_TURN_PREVIEW_ROWS`. */
+	/** Rows a collapsed card keeps visible while running. Defaults to `DEFAULT_TURN_PREVIEW_ROWS`. */
 	previewRows?: number;
 	/** Tool configuration, used to know which rows would render anything when folded. */
 	config?: Config;
@@ -244,7 +244,9 @@ class TurnProcessCard implements Component {
 		const final = this.visibleFinal = this.running ? undefined : this.finalRow();
 		const progress = this.progressRows();
 		const tools = this.rows.filter(row => isToolComp(row));
-		const tail = this.expanded ? [] : this.previewTail(final);
+		// The preview is a running-only intermediate state. Settled/replayed turns
+		// show only the final response until the user explicitly opens their history.
+		const tail = this.running && !this.expanded ? this.previewTail(final) : [];
 		this.visiblePreview = new Set(tail);
 		const reason = this.settled === 'aborted' ? 'aborted' : final?.lastMessage?.stopReason;
 		const failures = tools.filter(row => row.result?.isError).length;

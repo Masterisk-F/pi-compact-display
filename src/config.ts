@@ -25,7 +25,8 @@ export type Config = Record<string, ToolConfig> & {
   /** TUI-only (Pi 1.2.0 tested): fold intermediate assistant text/tools; final response stays visible. */
   turnFolding?: boolean;
   /**
-   * 折りたたんだ過程カードで見えているまま残す直近の行数 (アシスタントの進捗テキストとツール行)。
+   * 実行中の折りたたんだ過程カードに残す直近の行数 (アシスタントの進捗テキストとツール行)。
+   * 実行終了後・履歴再表示時はプレビューを隠し、最終回答のみを表示する。
    * 既定は 3。ツールは各ツールの設定どおり (グループ化・count_only など) に折りたたんで表示する。
    * 解釈は turn.ts が持つ (この値は型と Proxy の除外のみを担う)。
    */

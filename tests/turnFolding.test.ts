@@ -77,11 +77,44 @@ describe('Whole-turn process folding', () => {
 		expect(folded).toContain('执行过程');
 		expect(folded).toContain('已完成');
 		expect(folded).toContain('FINAL_RESULT');
-		// The final answer renders natively and does not consume a preview slot.
-		expect(folded).toContain('LATEST_PROGRESS');
-		expect(folded).toContain('OLD_PROGRESS');
+		// Settlement removes the running preview; only the final answer stays visible.
+		expect(folded).not.toContain('LATEST_PROGRESS');
+		expect(folded).not.toContain('OLD_PROGRESS');
+		expect(folded).not.toContain('⚡ bash');
 		expect(folded).not.toContain('RAW_TOOL_OUTPUT');
 		expect(chat.children).toContain(tool);
+	});
+
+	it.each([1, 3, 10])('hides the running preview on settlement even with previewRows=%s', previewRows => {
+		configureTurnFolding(true, { previewRows, config: loadConfig('/x') });
+		beginTurnFolding();
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		chat.addChild(assistant('INTERMEDIATE_PROGRESS'));
+		const tool = makeTool('bash', 'settle-tool', { command: 'echo hidden' });
+		tool.updateResult({ content: [{ type: 'text', text: 'TOOL_BODY' }], isError: false });
+		chat.addChild(tool);
+		const before = chat.render(120).join('\n');
+		expect(before).toContain('⚡ bash ×1');
+		if (previewRows > 1) expect(before).toContain('INTERMEDIATE_PROGRESS');
+		chat.addChild(assistant('FINAL_REPLY', 'stop'));
+		// A model stop alone does not settle a run: retries/extensions may continue.
+		expect(chat.render(120).join('\n')).toContain('FINAL_REPLY');
+		settleTurnFolding(false);
+		const folded = chat.render(120).join('\n');
+		expect(folded).toContain('已完成');
+		expect(folded).toContain('FINAL_REPLY');
+		expect(folded).not.toContain('INTERMEDIATE_PROGRESS');
+		expect(folded).not.toContain('⚡ bash');
+		// Explicitly opening the completed card can still reveal its history.
+		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
+		const opened = chat.render(120).join('\n');
+		expect(opened).toContain('INTERMEDIATE_PROGRESS');
+		expect(opened).toContain('⚡ bash ×1');
+		expect(opened).not.toContain('TOOL_BODY');
+		collapseTurnFolding();
+		expect(chat.render(120).join('\n')).not.toContain('INTERMEDIATE_PROGRESS');
+		expect(chat.render(120).join('\n')).not.toContain('⚡ bash');
 	});
 
 	it('keeps the final answer visible without modifying any assistant message', () => {
@@ -94,8 +127,8 @@ describe('Whole-turn process folding', () => {
 		const text = chat.render(120).join('\n');
 		expect(text).toContain('已完成');
 		expect(text).toContain('FINAL_RESULT');
-		// With a single progress row, the default three-row preview keeps it visible.
-		expect(text).toContain('MIDWAY');
+		// Replayed completed turns have no running preview, even with one progress row.
+		expect(text).not.toContain('MIDWAY');
 		expect(answer).toEqual(message('FINAL_RESULT\nAll checks passed.', 'stop'));
 		expect(progress).toEqual(message('MIDWAY'));
 	});
@@ -129,10 +162,10 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('LATER_STEP'));
 		chat.addChild(assistant('FINAL_ANSWER', 'stop'));
 		expect(chat.render(120).join('\n')).not.toContain('FULL_READ_CONTENT');
-		// The default three-row preview keeps the two progress rows and the read row visible.
+		// A completed card hides all progress until explicitly opened.
 		const folded = chat.render(120).join('\n');
-		expect(folded).toContain('EARLY_STEP');
-		expect(folded).toContain('LATER_STEP');
+		expect(folded).not.toContain('EARLY_STEP');
+		expect(folded).not.toContain('LATER_STEP');
 		expect(folded).not.toContain('read notes.txt');
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const expanded = chat.render(120).join('\n');
@@ -142,7 +175,8 @@ describe('Whole-turn process folding', () => {
 		expect((read as any).expanded).toBe(false);
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const refolded = chat.render(120).join('\n');
-		expect(refolded).toContain('EARLY_STEP');
+		expect(refolded).not.toContain('EARLY_STEP');
+		expect(refolded).not.toContain('LATER_STEP');
 		expect(refolded).not.toContain('FULL_READ_CONTENT');
 		expect(refolded).toContain('FINAL_ANSWER');
 	});
@@ -156,9 +190,8 @@ describe('Whole-turn process folding', () => {
 		const text = chat.render(120).join('\n');
 		expect(text).toContain('Partial response');
 		expect(text).toContain(reason === 'error' ? 'terminal failure' : reason === 'aborted' ? 'terminal failure' : 'truncated');
-		// The terminal row is the final row: it renders natively, and the earlier progress
-		// row stays visible inside the default three-row preview.
-		expect(text).toContain('PROGRESS');
+		// Terminal diagnostics stay visible; replayed progress remains folded.
+		expect(text).not.toContain('PROGRESS');
 	});
 
 	it('reports failed tools even when a later final answer succeeds', () => {
@@ -186,7 +219,8 @@ describe('Whole-turn process folding', () => {
 		expect(cards(chat)).toHaveLength(2);
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const text = chat.render(120).join('\n');
-		for (const visible of ['Question 1', 'Question 2', 'ANSWER_1', 'ANSWER_2', 'PROGRESS_1', 'PROGRESS_2', 'IMPORTANT_UI_WARNING']) expect(text).toContain(visible);
+		for (const visible of ['Question 1', 'Question 2', 'ANSWER_1', 'ANSWER_2', 'PROGRESS_1', 'IMPORTANT_UI_WARNING']) expect(text).toContain(visible);
+		expect(text).not.toContain('PROGRESS_2');
 	});
 
 	it('preserves image-result rows instead of hiding their previews', () => {
@@ -226,15 +260,15 @@ describe('Whole-turn process folding', () => {
 		makeTool = loadRenderingExtension(true);
 		expect(cards(chat)).toHaveLength(1);
 		chat.addChild(assistant('RESTORABLE_FINAL', 'stop'));
-		// Rebuilding keeps the folded preview: the progress row is still inside three rows.
-		expect(chat.render(120).join('\n')).toContain('RESTORABLE_PROGRESS');
+		// Rebuilding/replay must not restore the running preview on completed turns.
+		expect(chat.render(120).join('\n')).not.toContain('RESTORABLE_PROGRESS');
 		chat.clear();
 		chat.addChild(new UserMessageComponent('Restored question'));
 		chat.addChild(assistant('RESTORED_PROGRESS'));
 		chat.addChild(assistant('RESTORED_FINAL', 'stop'));
 		expect(cards(chat)).toHaveLength(1);
 		expect(chat.render(120).join('\n')).toContain('RESTORED_FINAL');
-		expect(chat.render(120).join('\n')).toContain('RESTORED_PROGRESS');
+		expect(chat.render(120).join('\n')).not.toContain('RESTORED_PROGRESS');
 	});
 
 	it('does not create process cards for a simple final-only answer or when disabled', () => {
@@ -262,8 +296,8 @@ describe('Whole-turn process folding', () => {
 		const expanded = chat.render(120).join('\n');
 		expect(expanded).toContain('COMPLETED_DETAIL_1');
 		expect(expanded).toContain('COMPLETED_DETAIL_2');
-		// The third turn is folded and shows its detail as the current preview.
-		expect(expanded).toContain('COMPLETED_DETAIL_3');
+		// The third completed turn stays fully folded.
+		expect(expanded).not.toContain('COMPLETED_DETAIL_3');
 		beginTurnFolding();
 		chat.addChild(new UserMessageComponent('Running question'));
 		chat.addChild(assistant('RUNNING_DETAIL'));
@@ -271,7 +305,7 @@ describe('Whole-turn process folding', () => {
 		for (let i = 0; i < 3; i++) expect(collapseTurnFolding()).toBe(0);
 		const text = chat.render(120).join('\n');
 		for (const id of [1, 2, 3]) {
-			expect(text).toContain(`COMPLETED_DETAIL_${id}`);
+			expect(text).not.toContain(`COMPLETED_DETAIL_${id}`);
 			expect(text).toContain(`COMPLETED_ANSWER_${id}`);
 		}
 		expect(text).toContain('RUNNING_DETAIL');
@@ -297,8 +331,9 @@ describe('Whole-turn process folding', () => {
 		// Ctrl+O never opens a process card; it still expands the tool itself.
 		expect(cards(chat)[0].isExpanded()).toBe(false);
 		const text = chat.render(120).join('\n');
-		expect(text).toContain('HIDDEN_PROGRESS');
-		expect(text).toContain('⚡ bash ×1');
+		expect(text).not.toContain('HIDDEN_PROGRESS');
+		expect(text).not.toContain('⚡ bash ×1');
+		expect(text).not.toContain('RAW_DETAIL');
 		expect(text).toContain('FINAL_ANSWER');
 		expect((tool as any).expanded).toBe(true);
 	});
@@ -314,7 +349,7 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('ANSWER', 'stop'));
 		settleTurnFolding(false);
 		expect(cards(chat)[0].isExpanded()).toBe(false);
-		expect(chat.render(120).join('\n')).toContain('DETAIL');
+		expect(chat.render(120).join('\n')).not.toContain('DETAIL');
 		expect(chat.render(120).join('\n')).toContain('ANSWER');
 	});
 
@@ -539,8 +574,8 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('CONFIG_FINAL', 'stop'));
 		const rendered = chat.render(120).join('\n');
 		expect(cards(chat).length > 0).toBe(folded);
-		// Folded cards keep the recent rows visible as plain text.
-		expect(rendered.includes('CONFIG_PROGRESS')).toBe(true);
+		// Completed turns hide progress only when TUI turn folding is enabled.
+		expect(rendered.includes('CONFIG_PROGRESS')).toBe(!folded);
 		expect(rendered).not.toContain('当前');
 		expect(rendered).toContain('CONFIG_FINAL');
 		expect(shortcut).toHaveBeenCalledTimes(enabled === true ? 1 : 0);
@@ -570,9 +605,59 @@ describe('Whole-turn process folding', () => {
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
 		chat.addChild(assistant('WAITING_PROGRESS'));
+		expect(chat.render(120).join('\n')).toContain('WAITING_PROGRESS');
 		settleTurnFolding(true);
-		expect(chat.render(120).join('\n')).toContain('已取消');
-		expect(chat.render(120).join('\n')).not.toContain('进行中');
+		const cancelled = chat.render(120).join('\n');
+		expect(cancelled).toContain('已取消');
+		expect(cancelled).not.toContain('进行中');
+		expect(cancelled).not.toContain('WAITING_PROGRESS');
+		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
+		expect(chat.render(120).join('\n')).toContain('WAITING_PROGRESS');
+	});
+
+	it('uses agent_settled to hide the preview and keeps earlier turns folded during a later run', () => {
+		const handlers = new Map<string, Function>();
+		extension({
+			on: (name: string, handler: Function) => handlers.set(name, handler),
+			registerShortcut: vi.fn(),
+			registerToolRenderer: vi.fn(),
+		} as any);
+		handlers.get('session_start')?.({}, { mode: 'tui' });
+		handlers.get('agent_start')?.({});
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('First question'));
+		chat.addChild(assistant('FIRST_PROGRESS'));
+		chat.addChild(assistant('FIRST_ANSWER', 'stop'));
+		expect(chat.render(120).join('\n')).toContain('FIRST_PROGRESS');
+		handlers.get('agent_settled')?.({ aborted: false });
+		const completed = chat.render(120).join('\n');
+		expect(completed).toContain('FIRST_ANSWER');
+		expect(completed).not.toContain('FIRST_PROGRESS');
+		// Replay/reload does not resurrect the finished turn's preview.
+		handlers.get('session_start')?.({}, { mode: 'tui' });
+		expect(chat.render(120).join('\n')).not.toContain('FIRST_PROGRESS');
+		handlers.get('agent_start')?.({});
+		chat.addChild(new UserMessageComponent('Second question'));
+		chat.addChild(assistant('SECOND_PROGRESS'));
+		const running = chat.render(120).join('\n');
+		expect(running).toContain('SECOND_PROGRESS');
+		expect(running).toContain('FIRST_ANSWER');
+		expect(running).not.toContain('FIRST_PROGRESS');
+	});
+
+	it.each(['error', 'aborted', 'length'])('preserves terminal %s diagnostics but hides progress on settlement', reason => {
+		beginTurnFolding();
+		const chat = createChat();
+		chat.addChild(new UserMessageComponent('Question'));
+		chat.addChild(assistant('BEFORE_FAILURE'));
+		const row = new AssistantMessageComponent({ ...message('PARTIAL_REPLY', reason), errorMessage: 'terminal failure' } as any);
+		chat.addChild(row);
+		expect(chat.render(120).join('\n')).toContain('BEFORE_FAILURE');
+		settleTurnFolding(reason === 'aborted');
+		const settled = chat.render(120).join('\n');
+		expect(settled).toContain('PARTIAL_REPLY');
+		expect(settled).toContain(reason === 'length' ? 'truncated' : 'terminal failure');
+		expect(settled).not.toContain('BEFORE_FAILURE');
 	});
 
 	describe('configurable collapsed preview', () => {
@@ -581,13 +666,13 @@ describe('Whole-turn process folding', () => {
 		const rebuild = (options: Parameters<typeof configureTurnFolding>[1]) => {
 			configureTurnFolding(false);
 			configureTurnFolding(true, options);
+			beginTurnFolding();
 			const chat = createChat();
 			chat.addChild(new UserMessageComponent('Question'));
 			chat.addChild(assistant('ROW_1'));
 			chat.addChild(assistant('ROW_2'));
 			chat.addChild(assistant('ROW_3'));
 			chat.addChild(assistant('ROW_4'));
-			chat.addChild(assistant('FINAL', 'stop'));
 			return chat.render(120).join('\n');
 		};
 
@@ -621,6 +706,7 @@ describe('Whole-turn process folding', () => {
 			makeTool = loadRenderingExtension(true);
 			configureTurnFolding(false);
 			configureTurnFolding(true, { previewRows: 3, config: loadConfig('/x') });
+			beginTurnFolding();
 			const chat = createChat();
 			chat.addChild(new UserMessageComponent('Question'));
 			chat.addChild(assistant('PROGRESS_1'));
@@ -645,6 +731,7 @@ describe('Whole-turn process folding', () => {
 				registerToolRenderer: vi.fn(),
 			} as any);
 			handlers.get('session_start')?.({}, { mode: 'tui' });
+			beginTurnFolding();
 			const chat = createChat();
 			chat.addChild(new UserMessageComponent('Question'));
 			chat.addChild(assistant('ROW_1'));

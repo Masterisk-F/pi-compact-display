@@ -84,7 +84,7 @@ The same JSON object holds global switches (`turnFolding`, `turnPreviewRows`, `g
 | Key | Default | Controls |
 | --- | --- | --- |
 | `turnFolding` | `false` | Outer process cards; TUI only. Requires Pi >=1.1.0. |
-| `turnPreviewRows` | `3` | How many of the most recent rows (progress text and tool rows) a collapsed process card keeps visible. Only effective with `turnFolding`. |
+| `turnPreviewRows` | `3` | Recent progress/tool rows kept visible **while running** in a collapsed process card. Only effective with `turnFolding`; ignored after settlement. |
 | `grouping` | `false` | Inner aggregation of consecutive `lines` calls; independent of turn folding. |
 | `hideThinking` | `false` | Hide thinking content and its indicator; does not remove it from model input. |
 | `default` | `{ "mode": "default" }` | Fallback **tool configuration** for names without an explicit match. Does not set the global switches, `turnPreviewRows`, or `user`/`skill`. |
@@ -270,7 +270,7 @@ This example folds routine reads into counts, aggregates consecutive tool calls,
 - **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts plus the **three most recent rows** (`turnPreviewRows`), rendered at their normal transcript positions: assistant progress text in full and wrapped to the terminal width, tool rows through their own renderer, so `grouping`, `count_only` and `outputLines` still decide how folded they look. It is not a model-generated summary.
 - **Preview count:** Set `turnPreviewRows` to keep a different number of rows (for example `1` for the old latest-only behaviour, or `5`). Values that are not integers of at least 1 fall back to the default of `3`. Rows that render nothing, such as `count_only` calls or the non-leader members of a tool group, do not use up a slot; image results and the final answer always stay visible and never consume one either. Previewed rows carry no extra label: they look like ordinary conversation and tool rows, and only the card header marks the turn as folded.
 - **Manually opened:** Click that turn's header in **fullscreen TUI mode**. New progress and tool results do not close it. Click again to fold that turn.
-- **Finished:** When the agent actually settles, the process automatically folds and the final response stays fully visible below it. Completion of a single tool or model response is not the auto-collapse boundary.
+- **Finished:** When the agent actually settles, the process automatically folds, **removes the running preview**, and leaves only its header and the final response visible (image results keep the exception below). `turnPreviewRows` applies only during execution, never to completed or replayed turns. Click the header to inspect history. Completion of a single tool or model response is not the auto-collapse boundary.
 - **Errors and cancellation:** The card labels cancellation, response errors, or truncation and counts tool failures. Opening it still respects each tool's display mode; `count_only` error text stays hidden.
 - **Images:** Image-result tool rows are not hidden by the process card and are excluded from aggregation. Image display still depends on Pi's image settings and terminal support.
 
@@ -300,13 +300,19 @@ With grouping enabled, opened processes preserve the visible sequence below. The
 Final answer (always visible)
 ```
 
-A **folded** card (`▶`) instead shows the same header plus only the last `turnPreviewRows` rows, at their real transcript positions. Earlier rows stay folded, and tool rows still follow their own display mode, so a grouped `lines` call contributes only its `⚡ bash ×N` header. The preview adds no label or other decoration: the rows read exactly as they would in the open transcript, and the header alone says the turn is folded.
+A **running, folded** card (`▶`) shows only the last `turnPreviewRows` rows at their real transcript positions. Tool rows still follow their own display mode; the preview adds no label. This is an intermediate state, not the completed layout:
+
+```text
+▶ 执行过程 · 进行中 · 2 条进度 · 3 次工具调用
+  ⚡ bash ×2
+  Applying the targeted fix…
+  ⚡ edit ×1
+```
+
+After `agent_settled`, all intermediate progress and text-tool rows disappear, regardless of the preview count. Reopening and closing a completed card, or replaying it after reload, keeps it fully folded:
 
 ```text
 ▶ 执行过程 · 已完成 · 2 条进度 · 3 次工具调用
-  ⚡ bash ×2
-  Applying the targeted fix…
-  Verifying the change against the tests
 Final answer (always visible)
 ```
 
