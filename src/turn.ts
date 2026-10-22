@@ -112,8 +112,6 @@ class TurnProcessCard implements Component {
 	private visibleFinal: Row | undefined;
 	/** Rows the collapsed card leaves visible for this frame. */
 	private visiblePreview: Set<Component> = new Set();
-	/** The newest previewed progress row, which carries the `当前：` label. */
-	private labeledRow: Row | undefined;
 	readonly rows: Row[] = [];
 
 	add(row: Row, running: boolean): void {
@@ -199,14 +197,14 @@ class TurnProcessCard implements Component {
 	/**
 	 * Progress text is rendered here rather than natively while folded: the card already
 	 * owns that row, and the preview must stay terminal-safe (no escape sequences) and
-	 * wrapped to the terminal width.
+	 * wrapped to the terminal width. Every previewed row looks like plain conversation
+	 * content; only the header above it marks the turn as folded.
 	 */
 	previewLines(row: Row, width: number): string[] | undefined {
 		if (this.expanded || !this.visiblePreview.has(row) || !isAssistantMessage(row)) return undefined;
 		const text = sanitizeToolText(textOf(row)).trim();
 		if (!text) return undefined;
-		const label = row === this.labeledRow ? '当前：' : '';
-		return wrapTextWithAnsi(`${label}${text}`, width).map(line => truncateToWidth(line, width, '…'));
+		return wrapTextWithAnsi(text, width).map(line => truncateToWidth(line, width, '…'));
 	}
 
 	shouldShow(row: Row): boolean {
@@ -248,8 +246,6 @@ class TurnProcessCard implements Component {
 		const tools = this.rows.filter(row => isToolComp(row));
 		const tail = this.expanded ? [] : this.previewTail(final);
 		this.visiblePreview = new Set(tail);
-		// `tail` is newest-first: the first progress row in it is the current work.
-		this.labeledRow = tail.find(row => isAssistantMessage(row));
 		const reason = this.settled === 'aborted' ? 'aborted' : final?.lastMessage?.stopReason;
 		const failures = tools.filter(row => row.result?.isError).length;
 		const failedResponses = this.rows.filter(row => isAssistantMessage(row) && row !== final && ['error', 'aborted', 'length'].includes(row.lastMessage?.stopReason)).length;

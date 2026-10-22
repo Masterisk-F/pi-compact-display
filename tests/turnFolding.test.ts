@@ -59,7 +59,7 @@ describe('Whole-turn process folding', () => {
 		expect(cards(chat)).toHaveLength(1);
 		expect(text).toContain('执行过程');
 		expect(text).toContain('进行中');
-		expect(text).toContain('当前：LATEST_PROGRESS');
+		expect(text).toContain('LATEST_PROGRESS');
 		// The default preview keeps the last three rows: this tool row is still visible
 		// through its own renderer (grouping folded it to a count header), and its output
 		// stays hidden.
@@ -71,14 +71,14 @@ describe('Whole-turn process folding', () => {
 		// extensions may still continue the same run.
 		chat.addChild(assistant('FINAL_RESULT', 'stop'));
 		expect(chat.render(120).join('\n')).toContain('进行中');
-		expect(chat.render(120).join('\n')).toContain('当前：FINAL_RESULT');
+		expect(chat.render(120).join('\n')).toContain('FINAL_RESULT');
 		settleTurnFolding(false);
 		const folded = chat.render(120).join('\n');
 		expect(folded).toContain('执行过程');
 		expect(folded).toContain('已完成');
 		expect(folded).toContain('FINAL_RESULT');
 		// The final answer renders natively and does not consume a preview slot.
-		expect(folded).toContain('当前：LATEST_PROGRESS');
+		expect(folded).toContain('LATEST_PROGRESS');
 		expect(folded).toContain('OLD_PROGRESS');
 		expect(folded).not.toContain('RAW_TOOL_OUTPUT');
 		expect(chat.children).toContain(tool);
@@ -95,27 +95,28 @@ describe('Whole-turn process folding', () => {
 		expect(text).toContain('已完成');
 		expect(text).toContain('FINAL_RESULT');
 		// With a single progress row, the default three-row preview keeps it visible.
-		expect(text).toContain('当前：MIDWAY');
+		expect(text).toContain('MIDWAY');
 		expect(answer).toEqual(message('FINAL_RESULT\nAll checks passed.', 'stop'));
 		expect(progress).toEqual(message('MIDWAY'));
 	});
 
-	it('updates a single current-work preview during streaming, then shows the completed answer', () => {
+	it('updates the streamed preview in place during streaming, then shows the completed answer', () => {
 		beginTurnFolding();
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
 		const row = assistant('STREAMING_ONE', 'pending');
 		chat.addChild(row);
 		row.updateContent(message('STREAMING_ONE', 'pending') as any, true);
-		expect(chat.render(120).join('\n')).toContain('当前：STREAMING_ONE');
+		expect(chat.render(120).join('\n')).toContain('STREAMING_ONE');
 		row.updateContent(message('STREAMING_TWO', 'pending') as any, true);
 		const update = chat.render(120).join('\n');
-		expect(update).toContain('当前：STREAMING_TWO');
+		expect(update).toContain('STREAMING_TWO');
 		expect(update).not.toContain('STREAMING_ONE');
 		row.updateContent(message('FINAL_STREAM', 'stop') as any, false);
 		settleTurnFolding(false);
 		expect(chat.render(120).join('\n')).toContain('FINAL_STREAM');
-		expect(chat.render(120).join('\n')).not.toContain('当前：');
+		// Once the final answer is visible, the streamed row leaves the preview tail.
+		expect(chat.render(120).join('\n')).not.toContain('STREAMING_TWO');
 	});
 
 	it('expands progress without overriding count_only tools, and can fold again', () => {
@@ -131,7 +132,7 @@ describe('Whole-turn process folding', () => {
 		// The default three-row preview keeps the two progress rows and the read row visible.
 		const folded = chat.render(120).join('\n');
 		expect(folded).toContain('EARLY_STEP');
-		expect(folded).toContain('当前：LATER_STEP');
+		expect(folded).toContain('LATER_STEP');
 		expect(folded).not.toContain('read notes.txt');
 		cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 });
 		const expanded = chat.render(120).join('\n');
@@ -157,7 +158,7 @@ describe('Whole-turn process folding', () => {
 		expect(text).toContain(reason === 'error' ? 'terminal failure' : reason === 'aborted' ? 'terminal failure' : 'truncated');
 		// The terminal row is the final row: it renders natively, and the earlier progress
 		// row stays visible inside the default three-row preview.
-		expect(text).toContain('当前：PROGRESS');
+		expect(text).toContain('PROGRESS');
 	});
 
 	it('reports failed tools even when a later final answer succeeds', () => {
@@ -233,7 +234,7 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('RESTORED_FINAL', 'stop'));
 		expect(cards(chat)).toHaveLength(1);
 		expect(chat.render(120).join('\n')).toContain('RESTORED_FINAL');
-		expect(chat.render(120).join('\n')).toContain('当前：RESTORED_PROGRESS');
+		expect(chat.render(120).join('\n')).toContain('RESTORED_PROGRESS');
 	});
 
 	it('does not create process cards for a simple final-only answer or when disabled', () => {
@@ -262,7 +263,7 @@ describe('Whole-turn process folding', () => {
 		expect(expanded).toContain('COMPLETED_DETAIL_1');
 		expect(expanded).toContain('COMPLETED_DETAIL_2');
 		// The third turn is folded and shows its detail as the current preview.
-		expect(expanded).toContain('当前：COMPLETED_DETAIL_3');
+		expect(expanded).toContain('COMPLETED_DETAIL_3');
 		beginTurnFolding();
 		chat.addChild(new UserMessageComponent('Running question'));
 		chat.addChild(assistant('RUNNING_DETAIL'));
@@ -273,14 +274,13 @@ describe('Whole-turn process folding', () => {
 			expect(text).toContain(`COMPLETED_DETAIL_${id}`);
 			expect(text).toContain(`COMPLETED_ANSWER_${id}`);
 		}
-		expect(text).toContain('当前：RUNNING_DETAIL');
+		expect(text).toContain('RUNNING_DETAIL');
 		expect(cards(chat)[3].handleMouse({ type: 'click', button: 'left', y: 0 })).toEqual({ handled: true });
 		const open = chat.render(120).join('\n');
 		expect(open).toContain('RUNNING_DETAIL');
-		expect(open).not.toContain('当前：RUNNING_DETAIL');
 		expect(collapseTurnFolding()).toBe(1);
 		expect(collapseTurnFolding()).toBe(0);
-		expect(chat.render(120).join('\n')).toContain('当前：RUNNING_DETAIL');
+		expect(chat.render(120).join('\n')).toContain('RUNNING_DETAIL');
 	});
 
 	it('does not expose a native global expansion hook on process cards', () => {
@@ -297,7 +297,7 @@ describe('Whole-turn process folding', () => {
 		// Ctrl+O never opens a process card; it still expands the tool itself.
 		expect(cards(chat)[0].isExpanded()).toBe(false);
 		const text = chat.render(120).join('\n');
-		expect(text).toContain('当前：HIDDEN_PROGRESS');
+		expect(text).toContain('HIDDEN_PROGRESS');
 		expect(text).toContain('⚡ bash ×1');
 		expect(text).toContain('FINAL_ANSWER');
 		expect((tool as any).expanded).toBe(true);
@@ -309,12 +309,12 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(new UserMessageComponent('Question'));
 		chat.addChild(assistant('DETAIL'));
 		expect(cards(chat)[0].handleMouse({ type: 'click', button: 'left', y: 0 })).toEqual({ handled: true });
+		expect(cards(chat)[0].isExpanded()).toBe(true);
 		expect(chat.render(120).join('\n')).toContain('DETAIL');
-		expect(chat.render(120).join('\n')).not.toContain('当前：');
 		chat.addChild(assistant('ANSWER', 'stop'));
 		settleTurnFolding(false);
 		expect(cards(chat)[0].isExpanded()).toBe(false);
-		expect(chat.render(120).join('\n')).toContain('当前：DETAIL');
+		expect(chat.render(120).join('\n')).toContain('DETAIL');
 		expect(chat.render(120).join('\n')).toContain('ANSWER');
 	});
 
@@ -337,7 +337,6 @@ describe('Whole-turn process folding', () => {
 		for (const text of ['EARLIER_RUNNING_STEP', 'CURRENT_RUNNING_STEP', '⚡ bash ×1']) expect(open).toContain(text);
 		expect(open).not.toContain('PARTIAL_TOOL_DETAIL');
 		expect((tool as any).expanded).toBe(false);
-		expect(open).not.toContain('当前：');
 		row.updateContent(message('UPDATED_RUNNING_STEP', 'pending') as any, true);
 		tool.updateResult({ content: [{ type: 'text', text: 'COMPLETE_TOOL_DETAIL' }], isError: false });
 		chat.addChild(assistant('LATER_RUNNING_STEP'));
@@ -348,12 +347,12 @@ describe('Whole-turn process folding', () => {
 		expect(card.isExpanded()).toBe(true);
 		expect(card.handleMouse({ type: 'click', button: 'left', y: 0 })).toEqual({ handled: true });
 		const folded = chat.render(120).join('\n');
-		expect(folded).toContain('当前：LATER_RUNNING_STEP');
+		expect(folded).toContain('LATER_RUNNING_STEP');
 		expect(folded).not.toContain('EARLIER_RUNNING_STEP');
 		expect(folded).not.toContain('COMPLETE_TOOL_DETAIL');
 	});
 
-	it('shows the whole current work on multiple lines and sanitizes it on narrow terminals', () => {
+	it('shows the recent progress in full on multiple lines and sanitizes it on narrow terminals', () => {
 		beginTurnFolding();
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
@@ -363,8 +362,8 @@ describe('Whole-turn process folding', () => {
 		// The preview is the latest progress text in full, wrapped to the terminal width
 		// instead of being cut to one truncated line.
 		expect(lines.length).toBeGreaterThan(2);
-		const current = lines.findIndex(line => line.includes('当前：最新工作'));
-		expect(current).toBeGreaterThan(0);
+		const previewed = lines.findIndex(line => line.includes('最新工作'));
+		expect(previewed).toBeGreaterThan(0);
 		// truncateToWidth may add safe SGR resets; original OSC links must not pass through.
 		for (const line of lines) {
 			expect(line).not.toContain('\u001b]8');
@@ -373,7 +372,7 @@ describe('Whole-turn process folding', () => {
 		}
 	});
 
-	it('labels only the latest progress row and wraps every preview row', () => {
+	it('shows every preview row as plain text without a current-work label', () => {
 		beginTurnFolding();
 		const chat = createChat();
 		chat.addChild(new UserMessageComponent('Question'));
@@ -381,10 +380,10 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('LATEST_LINE_ONE\nLATEST_LINE_TWO\nLATEST_LINE_THREE'));
 		const text = chat.render(60).join('\n');
 		expect(text).toContain('EARLIER_STEP_LINE_ONE');
-		expect(text).toContain('当前：LATEST_LINE_ONE');
+		expect(text).toContain('LATEST_LINE_ONE');
 		expect(text).toContain('LATEST_LINE_TWO');
 		expect(text).toContain('LATEST_LINE_THREE');
-		expect(text.match(/当前：/g)).toHaveLength(1);
+		expect(text).not.toContain('当前');
 	});
 
 	it('does not relabel or refold an older completed turn when a later run is cancelled', () => {
@@ -540,9 +539,9 @@ describe('Whole-turn process folding', () => {
 		chat.addChild(assistant('CONFIG_FINAL', 'stop'));
 		const rendered = chat.render(120).join('\n');
 		expect(cards(chat).length > 0).toBe(folded);
-		// Folded cards keep the recent rows visible, but label them as the current preview.
-		expect(rendered.includes('当前：CONFIG_PROGRESS')).toBe(folded);
+		// Folded cards keep the recent rows visible as plain text.
 		expect(rendered.includes('CONFIG_PROGRESS')).toBe(true);
+		expect(rendered).not.toContain('当前');
 		expect(rendered).toContain('CONFIG_FINAL');
 		expect(shortcut).toHaveBeenCalledTimes(enabled === true ? 1 : 0);
 		expect(registerTool).not.toHaveBeenCalled();
@@ -594,7 +593,7 @@ describe('Whole-turn process folding', () => {
 
 		it('keeps the three most recent rows by default', () => {
 			const text = rebuild({});
-			expect(text).toContain('当前：ROW_4');
+			expect(text).toContain('ROW_4');
 			expect(text).toContain('ROW_3');
 			expect(text).toContain('ROW_2');
 			expect(text).not.toContain('ROW_1');
@@ -602,14 +601,14 @@ describe('Whole-turn process folding', () => {
 
 		it('keeps only one row when configured to 1', () => {
 			const text = rebuild({ previewRows: 1 });
-			expect(text).toContain('当前：ROW_4');
+			expect(text).toContain('ROW_4');
 			for (const hidden of ['ROW_1', 'ROW_2', 'ROW_3']) expect(text).not.toContain(hidden);
 		});
 
 		it('keeps every row when configured higher than the row count', () => {
 			const text = rebuild({ previewRows: 10 });
 			for (const visible of ['ROW_1', 'ROW_2', 'ROW_3', 'ROW_4']) expect(text).toContain(visible);
-			expect(text.match(/当前：/g)).toHaveLength(1);
+			expect(text).not.toContain('当前');
 		});
 
 		it('does not spend a slot on rows that render nothing', () => {
@@ -631,7 +630,7 @@ describe('Whole-turn process folding', () => {
 			chat.addChild(assistant('PROGRESS_2'));
 			chat.addChild(assistant('PROGRESS_3'));
 			const text = chat.render(120).join('\n');
-			for (const visible of ['PROGRESS_1', 'PROGRESS_2', '当前：PROGRESS_3']) expect(text).toContain(visible);
+			for (const visible of ['PROGRESS_1', 'PROGRESS_2', 'PROGRESS_3']) expect(text).toContain(visible);
 			expect(text).not.toContain('READ_BODY');
 		});
 
@@ -652,7 +651,7 @@ describe('Whole-turn process folding', () => {
 			chat.addChild(assistant('ROW_2'));
 			chat.addChild(assistant('ROW_3'));
 			const text = chat.render(120).join('\n');
-			expect(text).toContain('当前：ROW_3');
+			expect(text).toContain('ROW_3');
 			expect(text).toContain('ROW_2');
 			expect(text).not.toContain('ROW_1');
 		});

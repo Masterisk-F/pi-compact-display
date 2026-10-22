@@ -268,7 +268,7 @@ This example folds routine reads into counts, aggregates consecutive tool calls,
 ### Running, opened, and finished
 
 - **Running:** Intermediate assistant text and tool rows are folded by default. The card shows progress/tool counts plus the **three most recent rows** (`turnPreviewRows`), rendered at their normal transcript positions: assistant progress text in full and wrapped to the terminal width, tool rows through their own renderer, so `grouping`, `count_only` and `outputLines` still decide how folded they look. It is not a model-generated summary.
-- **Preview count:** Set `turnPreviewRows` to keep a different number of rows (for example `1` for the old latest-only behaviour, or `5`). Values that are not integers of at least 1 fall back to the default of `3`. Rows that render nothing, such as `count_only` calls or the non-leader members of a tool group, do not use up a slot; image results and the final answer always stay visible and never consume one either. Only the newest progress row carries the `当前：` label.
+- **Preview count:** Set `turnPreviewRows` to keep a different number of rows (for example `1` for the old latest-only behaviour, or `5`). Values that are not integers of at least 1 fall back to the default of `3`. Rows that render nothing, such as `count_only` calls or the non-leader members of a tool group, do not use up a slot; image results and the final answer always stay visible and never consume one either. Previewed rows carry no extra label: they look like ordinary conversation and tool rows, and only the card header marks the turn as folded.
 - **Manually opened:** Click that turn's header in **fullscreen TUI mode**. New progress and tool results do not close it. Click again to fold that turn.
 - **Finished:** When the agent actually settles, the process automatically folds and the final response stays fully visible below it. Completion of a single tool or model response is not the auto-collapse boundary.
 - **Errors and cancellation:** The card labels cancellation, response errors, or truncation and counts tool failures. Opening it still respects each tool's display mode; `count_only` error text stays hidden.
@@ -300,13 +300,13 @@ With grouping enabled, opened processes preserve the visible sequence below. The
 Final answer (always visible)
 ```
 
-A **folded** card (`▶`) instead shows the same header plus only the last `turnPreviewRows` rows, with the newest progress text labelled `当前：`. Earlier rows stay folded, and tool rows still follow their own display mode, so a grouped `lines` call contributes only its `⚡ bash ×N` header:
+A **folded** card (`▶`) instead shows the same header plus only the last `turnPreviewRows` rows, at their real transcript positions. Earlier rows stay folded, and tool rows still follow their own display mode, so a grouped `lines` call contributes only its `⚡ bash ×N` header. The preview adds no label or other decoration: the rows read exactly as they would in the open transcript, and the header alone says the turn is folded.
 
 ```text
 ▶ 执行过程 · 已完成 · 2 条进度 · 3 次工具调用
   ⚡ bash ×2
   Applying the targeted fix…
-  当前：Verifying the change against the tests
+  Verifying the change against the tests
 Final answer (always visible)
 ```
 
