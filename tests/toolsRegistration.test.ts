@@ -122,4 +122,72 @@ describe('Renderer registration compatibility', () => {
 		const mockComp = { constructor: { name: 'ToolExecutionComponent' } };
 		expect(() => container.addChild(mockComp as any)).not.toThrow();
 	});
+
+	it('does not crash when theme does not provide a bold function (F-06)', () => {
+		setup({ bash: { mode: 'lines' } });
+		const renderers = resolver('bash', () => undefined);
+		const themeWithoutBold = {
+			fg: (_name: string, text: string) => text,
+			bg: (_name: string, text: string) => text,
+		};
+		expect(() => renderers.renderCall({ command: 'echo 1' }, themeWithoutBold, context).render(80)).not.toThrow();
+	});
+
+	it('respects downstream renderer returning undefined without creating fallback box (F-07)', () => {
+		setup({ custom: { mode: 'default' }, 'custom:special': { mode: 'lines' } });
+		const renderResult = vi.fn(() => undefined);
+		const renderers = resolver('custom', () => ({ renderResult }));
+		const result = { content: [{ type: 'text', text: 'ignored' }] };
+		const comp = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, context);
+		expect(comp.render(80)).toEqual([]);
+		expect(renderResult).toHaveBeenCalledTimes(1);
+	});
+
+	it('renders error message instead of payload in default mode fallback when write fails (F-05)', () => {
+		setup({ write: { mode: 'default' }, 'write:special': { mode: 'lines' } });
+		const renderers = resolver('write', () => undefined);
+		const result = { content: [{ type: 'text', text: 'EACCES: permission denied' }] };
+		const errContext = { ...context, args: { path: '/tmp/f.txt', content: 'SECRET' }, isError: true };
+		const rendered = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, errContext).render(80).join('\n');
+		expect(rendered).toContain('EACCES: permission denied');
+		expect(rendered).not.toContain('SECRET');
+	});
+
+	it('returns ZERO immediately for grouped member rows even when expanded (F-08)', () => {
+		setup({ grouping: true, bash: { mode: 'lines' } });
+		const container = new Container();
+		const mockState = {};
+		const mockComp = {
+			constructor: { name: 'ToolExecutionComponent' },
+			toolName: 'bash',
+			rendererState: mockState,
+		};
+		container.addChild(mockComp as any);
+
+		const renderers = resolver('bash', () => undefined);
+		const result = { content: [{ type: 'text', text: 'output line' }] };
+		const memberContext = { ...context, state: mockState, expanded: true };
+		const comp = renderers.renderResult(result, { expanded: true, isPartial: false }, theme, memberContext);
+		expect(comp.render(80)).toEqual([]);
+	});
+
+	it('applies toolTitle style and bold to fallback call line in default mode (F-09)', () => {
+		setup({ custom: { mode: 'default' }, 'custom:special': { mode: 'lines' } });
+		const renderers = resolver('custom', () => undefined);
+		const customTheme = {
+			fg: (name: string, text: string) => `<${name}>${text}</${name}>`,
+			bg: (_name: string, text: string) => text,
+			bold: (text: string) => `*${text}*`,
+		};
+		const call = renderers.renderCall({ action: 'check' }, customTheme, context).render(80).join('\n');
+		expect(call).toContain('<toolTitle>*custom:check { action: check }*</toolTitle>');
+	});
+
+	it('returns ZERO in default mode fallback when result text is empty (F-10)', () => {
+		setup({ custom: { mode: 'default' }, 'custom:special': { mode: 'lines' } });
+		const renderers = resolver('custom', () => undefined);
+		const result = { content: [] };
+		const comp = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, context);
+		expect(comp.render(80)).toEqual([]);
+	});
 });

@@ -16,11 +16,14 @@ export function registerToolRenderers(pi: ExtensionAPI, config: Config) {
 			renderShell: "self",
 			renderCall(args, theme, context) {
 				const toolConfig = resolveToolConfig(toolName, args, config);
+				const bold = typeof theme.bold === "function" ? theme.bold : (s: string) => s;
+				const fallbackCall = () => new Text(theme.fg("toolTitle", bold(formatCallLine(toolName, args))), 0, 0);
+
 				if (toolConfig.mode === "default") {
-					return wrapWithBox(original?.renderCall?.(args, theme, context) ?? new Text(formatCallLine(toolName, args), 0, 0), theme, context, toolConfig);
+					return wrapWithBox(original?.renderCall?.(args, theme, context) ?? fallbackCall(), theme, context, toolConfig);
 				}
 				if (toolConfig.mode === "count_only") return ZERO;
-				const callBox = wrapWithBox(new Text(theme.fg("toolTitle", theme.bold(formatCallLine(toolName, args))), 0, 0), theme, context, toolConfig);
+				const callBox = wrapWithBox(fallbackCall(), theme, context, toolConfig);
 				if (config.grouping !== true || toolConfig.grouping === false) return callBox;
 				let group: GroupContent | undefined;
 				return {
@@ -36,10 +39,16 @@ export function registerToolRenderers(pi: ExtensionAPI, config: Config) {
 			renderResult(result, options, theme, context) {
 				const toolConfig = resolveToolConfig(toolName, context.args, config);
 				if (toolConfig.mode === "default") {
-					return wrapWithBox(original?.renderResult?.(result, options, theme, context) ?? new Text(resolveResultText(toolName, context.args, result), 0, 0), theme, context, toolConfig);
+					if (original?.renderResult) {
+						const rendered = original.renderResult(result, options, theme, context);
+						return rendered ? wrapWithBox(rendered, theme, context, toolConfig) : ZERO;
+					}
+					const raw = resolveResultText(toolName, context.args, { ...result, isError: context.isError });
+					if (!raw) return ZERO;
+					return wrapWithBox(new Text(raw, 0, 0), theme, context, toolConfig);
 				}
 				const grouped = config.grouping === true && toolConfig.grouping !== false;
-				if (toolConfig.mode === "count_only" || options.isPartial || (grouped && !options.expanded)) return ZERO;
+				if (toolConfig.mode === "count_only" || options.isPartial || (grouped && (!options.expanded || getGroupOwner(context.state)))) return ZERO;
 				const raw = resolveResultText(toolName, context.args, { ...result, isError: context.isError });
 				const formatted = formatOutput(raw, toolConfig, options.expanded);
 				if (!formatted) return ZERO;
