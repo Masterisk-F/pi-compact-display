@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
-import { Text } from '@earendil-works/pi-tui';
-import { ToolExecutionComponent } from '@earendil-works/pi-coding-agent';
+import { Text, Container } from '@earendil-works/pi-tui';
+import { ToolExecutionComponent, initTheme } from '@earendil-works/pi-coding-agent';
 import extension from '../src/index';
 
 vi.mock('fs');
@@ -12,6 +12,7 @@ describe('Renderer registration compatibility', () => {
 
 	beforeEach(() => {
 		vi.resetAllMocks();
+		initTheme('dark');
 		resolver = undefined;
 		mockPi = {
 			on: vi.fn(),
@@ -80,10 +81,10 @@ describe('Renderer registration compatibility', () => {
 		setup({ grouping: true, default: { mode: 'lines', outputLines: 1, noPadding: true } });
 		const renderers = resolver('unknown', () => undefined);
 		const args = { action: 'inspect' };
-		const renderContext = { ...context, args, expanded: true };
+		const renderContext = { ...context, args, expanded: false };
 		const call = renderers.renderCall(args, theme, renderContext).render(80).join('\n');
-		expect(call).toContain('unknown:inspect ×1');
 		expect(call).toContain('unknown:inspect { action: inspect }');
+		expect(call).not.toContain('×1');
 		const result = { content: [{ type: 'text', text: 'first\nsecond' }] };
 		const output = renderers.renderResult(result, { expanded: true, isPartial: false }, theme, renderContext).render(80).join('\n');
 		expect(output).toContain('first');
@@ -113,5 +114,12 @@ describe('Renderer registration compatibility', () => {
 		expect(() => setup({ bash: { mode: 'lines' } })).toThrow(/Pi >=1\.0\.1.*registerToolRenderer/);
 		expect(ToolExecutionComponent.prototype.addChild).toBe(addChild);
 		expect(mockPi.registerTool).not.toHaveBeenCalled();
+	});
+
+	it('does not throw when tracking components without rendererState (F-04)', () => {
+		setup({ bash: { mode: 'lines' } });
+		const container = new Container();
+		const mockComp = { constructor: { name: 'ToolExecutionComponent' } };
+		expect(() => container.addChild(mockComp as any)).not.toThrow();
 	});
 });

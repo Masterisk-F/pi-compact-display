@@ -62,7 +62,7 @@ export function _mirrorDebug(): { parentMapSize: number } {
 
 export function trackChild(container: Container, comp: object): void {
 	// Renderer callbacks expose row state, not the row; keep the grouping bridge in the existing mirror.
-	if (isToolComp(comp)) ownersByState.set((comp as any).rendererState, comp);
+	if (isToolComp(comp) && (comp as any).rendererState) ownersByState.set((comp as any).rendererState, comp);
 	// 同一コンテナへの再追加はミラーに重複登録しない。
 	// ホストの Container.addChild は無条件に再 push するため、重複登録すると
 	// グループヘッダーのカウント (⚡ bash ×2 等) が水増しされる。

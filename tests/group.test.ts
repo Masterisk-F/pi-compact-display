@@ -63,6 +63,12 @@ describe('groupOf', () => {
 		expect(groupOf(t1, config)).toEqual([]);
 	});
 
+	it('should track child safely even when rendererState is undefined', () => {
+		const c = new Container();
+		const toolWithoutState = { constructor: { name: 'ToolExecutionComponent' }, toolName: 'bash' };
+		expect(() => trackChild(c, toolWithoutState)).not.toThrow();
+	});
+
 	it('should group consecutive lines tools of the same turn', () => {
 		const config = makeConfig({ grouping: true, bash: { mode: 'lines' } });
 		const c = new Container();
