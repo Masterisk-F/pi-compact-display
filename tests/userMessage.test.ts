@@ -31,7 +31,7 @@ describe('UserMessageComponent & Spacer Override', () => {
     // Load the extension to apply the hook
     const mockPi = {
       on: vi.fn(),
-      registerTool: vi.fn()
+      registerToolRenderer: vi.fn()
     };
     extension(mockPi as any);
 
@@ -55,7 +55,7 @@ describe('UserMessageComponent & Spacer Override', () => {
     // Load the extension to apply the hook
     const mockPi = {
       on: vi.fn(),
-      registerTool: vi.fn()
+      registerToolRenderer: vi.fn()
     };
     extension(mockPi as any);
 
@@ -77,7 +77,7 @@ describe('UserMessageComponent & Spacer Override', () => {
 
     const mockPi = {
       on: vi.fn(),
-      registerTool: vi.fn()
+      registerToolRenderer: vi.fn()
     };
     extension(mockPi as any);
 
@@ -108,7 +108,7 @@ describe('UserMessageComponent & Spacer Override', () => {
 
     const mockPi = {
       on: vi.fn(),
-      registerTool: vi.fn()
+      registerToolRenderer: vi.fn()
     };
     extension(mockPi as any);
 
@@ -138,7 +138,7 @@ describe('UserMessageComponent & Spacer Override', () => {
 
     const mockPi = {
       on: vi.fn(),
-      registerTool: vi.fn()
+      registerToolRenderer: vi.fn()
     };
     extension(mockPi as any);
 

@@ -18,7 +18,7 @@ describe('hideThinking — updateContent patch', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(configJson));
     const mockPi = {
       on: vi.fn(),
-      registerTool: vi.fn(),
+      registerToolRenderer: vi.fn(),
     };
     extension(mockPi as any);
   };

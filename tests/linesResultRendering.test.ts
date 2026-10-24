@@ -1,32 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
-import { ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
-import extension from '../src/index';
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import { loadRenderingExtension } from './renderingHarness';
 
 vi.mock('fs');
 
-// 系統A (index.ts の prototype パッチ) による lines モードの結果描画を、
-// 実 ToolExecutionComponent + 実際に登録された tool 定義で検証する
-// (Pi 本体は interactive-mode.js で getRegisteredToolDefinition(name) を
-//  ToolExecutionComponent に渡すため、登録定義を渡すのが実挙動に一致する)。
-describe('lines-mode result rendering (patched renderer)', () => {
-	const fakeUi = { requestRender: () => {} };
-	let registered: Record<string, any>;
+// 実 ToolExecutionComponent と登録された renderer resolver を使った統合テスト。
+describe('lines-mode result rendering (registered renderer)', () => {
+	let makeComponent: ReturnType<typeof loadRenderingExtension>;
 
 	beforeEach(() => {
 		vi.resetAllMocks();
 		initTheme("dark");
-		registered = {};
 		vi.mocked(fs.existsSync).mockReturnValue(true);
 		vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
 			write: { mode: 'lines' },
 			edit: { mode: 'lines' },
 		}));
-		extension({ on: vi.fn(), registerTool: (d: any) => { registered[d.name] = d; } } as any);
+		makeComponent = loadRenderingExtension();
 	});
-
-	const makeComponent = (toolName: string, id: string, args: any) =>
-		new ToolExecutionComponent(toolName, id, args, {}, registered[toolName], fakeUi as any, process.cwd());
 
 	const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
 

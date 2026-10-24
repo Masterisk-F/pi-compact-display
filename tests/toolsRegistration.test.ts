@@ -1,21 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
+import { Text, Container } from '@earendil-works/pi-tui';
+import { ToolExecutionComponent, initTheme } from '@earendil-works/pi-coding-agent';
 import extension from '../src/index';
 
 vi.mock('fs');
 
-describe('Tools Registration Filtering & Metadata Inheritance (D-01, D-04, D-05)', () => {
+describe('Renderer registration compatibility', () => {
 	let mockPi: any;
-	let registeredTools: Map<string, any>;
+	let resolver: any;
 
 	beforeEach(() => {
 		vi.resetAllMocks();
-		registeredTools = new Map();
+		initTheme('dark');
+		resolver = undefined;
 		mockPi = {
 			on: vi.fn(),
-			registerTool: vi.fn((def: any) => {
-				registeredTools.set(def.name, def);
-			}),
+			registerTool: vi.fn(),
+			registerToolRenderer: vi.fn((registered: any) => { resolver = registered; }),
 		};
 	});
 
@@ -25,130 +27,167 @@ describe('Tools Registration Filtering & Metadata Inheritance (D-01, D-04, D-05)
 		extension(mockPi);
 	};
 
-	it('should NOT register any tool when config is empty (S1)', () => {
-		setup({});
+	const theme = {
+		fg: (_name: string, text: string) => text,
+		bg: (_name: string, text: string) => text,
+		bold: (text: string) => text,
+	};
+	const context = { args: {}, state: {}, isPartial: false, isError: false, expanded: false };
+
+	it('does not register tools when Bash belongs to another extension', () => {
+		const execute = vi.fn();
+		const parameters = { type: 'object', properties: { command: { type: 'string' } } };
+		const existing = { name: 'bash', execute, parameters, prepareArguments: vi.fn(), promptSnippet: 'RTK Bash' };
+		mockPi.registerTool.mockImplementation((tool: any) => {
+			throw new Error(`Tool "${tool.name}" conflicts with pi-code-intel`);
+		});
+		expect(() => setup({ grouping: true, bash: { mode: 'lines' } })).not.toThrow();
 		expect(mockPi.registerTool).not.toHaveBeenCalled();
-		expect(registeredTools.size).toBe(0);
+		expect(mockPi.registerToolRenderer).toHaveBeenCalledTimes(1);
+		expect(resolver('bash', () => existing)).not.toHaveProperty('execute');
+		expect(existing.execute).toBe(execute);
+		expect(existing.parameters).toBe(parameters);
+		expect(existing.promptSnippet).toBe('RTK Bash');
 	});
 
-	it('should NOT register any tool when default key is explicitly "default" (S1)', () => {
-		setup({ default: { mode: 'default' } });
+	it('preserves downstream renderers for default mode without mutating them', () => {
+		setup({ default: { mode: 'lines' }, bash: { mode: 'default' } });
+		const next = { renderCall: vi.fn(), renderResult: vi.fn(), renderShell: 'default' };
+		expect(resolver('bash', () => next)).toBe(next);
 		expect(mockPi.registerTool).not.toHaveBeenCalled();
-		expect(registeredTools.size).toBe(0);
 	});
 
-	it('should register only count_only tools when specified (S2)', () => {
+	it('does not change tool component renderer prototypes', () => {
+		const prototype = ToolExecutionComponent.prototype as any;
+		const methods = [prototype.getCallRenderer, prototype.getResultRenderer, prototype.getRenderShell];
+		setup({ bash: { mode: 'lines' } });
+		expect([prototype.getCallRenderer, prototype.getResultRenderer, prototype.getRenderShell]).toEqual(methods);
+	});
+
+	it('renders unknown tools using the default configuration before they register', () => {
+		setup({ default: { mode: 'lines', outputLines: 2, noPadding: true } });
+		const renderers = resolver('mcp__server__unknown', () => undefined);
+		expect(renderers.renderShell).toBe('self');
+		const result = { content: [{ type: 'text', text: 'first\nsecond\nthird' }] };
+		const collapsed = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, context).render(80).join('\n');
+		expect(collapsed).toContain('first');
+		expect(collapsed).toContain('second');
+		expect(collapsed).not.toContain('third');
+		const expanded = renderers.renderResult(result, { expanded: true, isPartial: false }, theme, context).render(80).join('\n');
+		expect(expanded).toContain('third');
+	});
+
+	it('keeps grouped call and result details available outside the TUI mirror', () => {
+		setup({ grouping: true, default: { mode: 'lines', outputLines: 1, noPadding: true } });
+		const renderers = resolver('unknown', () => undefined);
+		const args = { action: 'inspect' };
+		const renderContext = { ...context, args, expanded: false };
+		const call = renderers.renderCall(args, theme, renderContext).render(80).join('\n');
+		expect(call).toContain('unknown:inspect { action: inspect }');
+		expect(call).not.toContain('×1');
+		const result = { content: [{ type: 'text', text: 'first\nsecond' }] };
+		const output = renderers.renderResult(result, { expanded: true, isPartial: false }, theme, renderContext).render(80).join('\n');
+		expect(output).toContain('first');
+		expect(output).toContain('second');
+	});
+
+	it('uses count_only renderers without replacing tool execution', () => {
 		setup({ read: { mode: 'count_only' } });
-		expect(mockPi.registerTool).toHaveBeenCalledTimes(1);
-		expect(registeredTools.has('read')).toBe(true);
-		expect(registeredTools.has('bash')).toBe(false);
-		expect(registeredTools.has('ls')).toBe(false);
+		const renderers = resolver('read', () => undefined);
+		expect(renderers.renderCall({}, theme, context).render(80)).toEqual([]);
+		expect(renderers.renderResult({}, {}, theme, context).render(80)).toEqual([]);
+		expect(mockPi.registerTool).not.toHaveBeenCalled();
 	});
 
-	it('should register only lines tools when specified (S3)', () => {
-		setup({
-			read: { mode: 'lines', outputLines: 2 },
-			bash: { mode: 'lines', outputLines: 3 },
-		});
-		expect(mockPi.registerTool).toHaveBeenCalledTimes(2);
-		expect(registeredTools.has('read')).toBe(true);
-		expect(registeredTools.has('bash')).toBe(true);
-		expect(registeredTools.has('write')).toBe(false);
-		expect(registeredTools.has('ls')).toBe(false);
+	it('resolves action-specific configuration with fallback to downstream renderers', () => {
+		setup({ mcp: { mode: 'default' }, 'mcp:search': { mode: 'lines', noPadding: true } });
+		const renderCall = vi.fn(() => new Text('original', 0, 0));
+		const renderers = resolver('mcp', () => ({ renderCall }));
+		expect(renderers.renderCall({ action: 'search' }, theme, context).render(80).join('\n')).toContain('mcp:search');
+		expect(renderers.renderCall({ action: 'other' }, theme, context).render(80).join('\n')).toContain('original');
+		expect(renderCall).toHaveBeenCalledTimes(1);
 	});
 
-	it('should register read WITHOUT ZERO renderCall/renderResult so lines mode uses built-in renderer (S3 / D-04)', () => {
-		setup({ read: { mode: 'lines', outputLines: 2 } });
-		const def = registeredTools.get('read');
-		expect(def).toBeDefined();
-		expect(def.renderCall).toBeUndefined();
-		expect(def.renderResult).toBeUndefined();
+	it('fails clearly on Pi versions without registerToolRenderer before changing prototypes', () => {
+		const addChild = ToolExecutionComponent.prototype.addChild;
+		delete mockPi.registerToolRenderer;
+		expect(() => setup({ bash: { mode: 'lines' } })).toThrow(/Pi >=1\.0\.1.*registerToolRenderer/);
+		expect(ToolExecutionComponent.prototype.addChild).toBe(addChild);
+		expect(mockPi.registerTool).not.toHaveBeenCalled();
 	});
 
-	it('should register all 7 tools when default key specifies count_only (S8)', () => {
-		setup({ default: { mode: 'count_only' } });
-		expect(mockPi.registerTool).toHaveBeenCalledTimes(7);
-		for (const name of ['bash', 'read', 'write', 'edit', 'ls', 'find', 'grep']) {
-			expect(registeredTools.has(name)).toBe(true);
-		}
+	it('does not throw when tracking components without rendererState (F-04)', () => {
+		setup({ bash: { mode: 'lines' } });
+		const container = new Container();
+		const mockComp = { constructor: { name: 'ToolExecutionComponent' } };
+		expect(() => container.addChild(mockComp as any)).not.toThrow();
 	});
 
-	it('should register all 7 tools when default key specifies lines (S8)', () => {
-		setup({ default: { mode: 'lines', outputLines: 3 } });
-		expect(mockPi.registerTool).toHaveBeenCalledTimes(7);
-		for (const name of ['bash', 'read', 'write', 'edit', 'ls', 'find', 'grep']) {
-			expect(registeredTools.has(name)).toBe(true);
-		}
+	it('does not crash when theme does not provide a bold function (F-06)', () => {
+		setup({ bash: { mode: 'lines' } });
+		const renderers = resolver('bash', () => undefined);
+		const themeWithoutBold = {
+			fg: (_name: string, text: string) => text,
+			bg: (_name: string, text: string) => text,
+		};
+		expect(() => renderers.renderCall({ command: 'echo 1' }, themeWithoutBold, context).render(80)).not.toThrow();
 	});
 
-	it('should allow tool-specific lines mode to override default count_only (S8)', () => {
-		setup({
-			default: { mode: 'count_only' },
-			read: { mode: 'lines', outputLines: 2 },
-		});
-		expect(mockPi.registerTool).toHaveBeenCalledTimes(7);
-		const readDef = registeredTools.get('read');
-		expect(readDef.renderCall).toBeUndefined();
+	it('respects downstream renderer returning undefined without creating fallback box (F-07)', () => {
+		setup({ custom: { mode: 'default' }, 'custom:special': { mode: 'lines' } });
+		const renderResult = vi.fn(() => undefined);
+		const renderers = resolver('custom', () => ({ renderResult }));
+		const result = { content: [{ type: 'text', text: 'ignored' }] };
+		const comp = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, context);
+		expect(comp.render(80)).toEqual([]);
+		expect(renderResult).toHaveBeenCalledTimes(1);
 	});
 
-	it('should allow tool-specific default mode to override default key lines and skip registration (S9)', () => {
-		setup({
-			default: { mode: 'lines' },
-			read: { mode: 'default' },
-		});
-		expect(mockPi.registerTool).toHaveBeenCalledTimes(6);
-		expect(registeredTools.has('read')).toBe(false);
-		expect(registeredTools.has('bash')).toBe(true);
-		expect(registeredTools.has('ls')).toBe(true);
+	it('renders error message instead of payload in default mode fallback when write fails (F-05)', () => {
+		setup({ write: { mode: 'default' }, 'write:special': { mode: 'lines' } });
+		const renderers = resolver('write', () => undefined);
+		const result = { content: [{ type: 'text', text: 'EACCES: permission denied' }] };
+		const errContext = { ...context, args: { path: '/tmp/f.txt', content: 'SECRET' }, isError: true };
+		const rendered = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, errContext).render(80).join('\n');
+		expect(rendered).toContain('EACCES: permission denied');
+		expect(rendered).not.toContain('SECRET');
 	});
 
-	it('should inherit promptSnippet and promptGuidelines from built-in definition on registered tool (S5)', () => {
-		setup({ read: { mode: 'count_only' } });
-		const def = registeredTools.get('read');
-		expect(def.promptSnippet).toBe('Read file contents');
-		expect(Array.isArray(def.promptGuidelines)).toBe(true);
-		expect(def.promptGuidelines.length).toBeGreaterThan(0);
+	it('returns ZERO immediately for grouped member rows even when expanded (F-08)', () => {
+		setup({ grouping: true, bash: { mode: 'lines' } });
+		const container = new Container();
+		const mockState = {};
+		const mockComp = {
+			constructor: { name: 'ToolExecutionComponent' },
+			toolName: 'bash',
+			rendererState: mockState,
+		};
+		container.addChild(mockComp as any);
+
+		const renderers = resolver('bash', () => undefined);
+		const result = { content: [{ type: 'text', text: 'output line' }] };
+		const memberContext = { ...context, state: mockState, expanded: true };
+		const comp = renderers.renderResult(result, { expanded: true, isPartial: false }, theme, memberContext);
+		expect(comp.render(80)).toEqual([]);
 	});
 
-	it('should inherit detailed description from built-in definition on registered tool (S6 / D-05)', () => {
-		setup({ read: { mode: 'count_only' } });
-		const def = registeredTools.get('read');
-		expect(def.description.length).toBeGreaterThan(100);
-		expect(def.description).toContain('Supports text files and images');
+	it('applies toolTitle style and bold to fallback call line in default mode (F-09)', () => {
+		setup({ custom: { mode: 'default' }, 'custom:special': { mode: 'lines' } });
+		const renderers = resolver('custom', () => undefined);
+		const customTheme = {
+			fg: (name: string, text: string) => `<${name}>${text}</${name}>`,
+			bg: (_name: string, text: string) => text,
+			bold: (text: string) => `*${text}*`,
+		};
+		const call = renderers.renderCall({ action: 'check' }, customTheme, context).render(80).join('\n');
+		expect(call).toContain('<toolTitle>*custom:check { action: check }*</toolTitle>');
 	});
 
-	it('should inherit prepareArguments and executionMode from built-in edit definition (S7)', () => {
-		setup({ edit: { mode: 'lines' } });
-		const def = registeredTools.get('edit');
-		expect(typeof def.prepareArguments).toBe('function');
-		const normalized = def.prepareArguments({
-			path: 'test.ts',
-			oldText: 'foo',
-			newText: 'bar',
-		});
-		expect(normalized.edits).toEqual([{ oldText: 'foo', newText: 'bar' }]);
-	});
-
-	it('should set name and label for all 7 tools matching their registered name (S2)', () => {
-		setup({ default: { mode: 'count_only' } });
-		for (const name of ['bash', 'read', 'write', 'edit', 'ls', 'find', 'grep']) {
-			const def = registeredTools.get(name);
-			expect(def).toBeDefined();
-			expect(def.name).toBe(name);
-			expect(def.label).toBe(name);
-		}
-	});
-
-	it('should NOT register renderResult on bash/write/edit (single rendering pipeline) (I2)', () => {
-		setup({
-			bash: { mode: 'lines' },
-			write: { mode: 'lines' },
-			edit: { mode: 'lines' },
-		});
-		for (const name of ['bash', 'write', 'edit']) {
-			const def = registeredTools.get(name);
-			expect(def).toBeDefined();
-			expect(def.renderResult).toBeUndefined();
-		}
+	it('returns ZERO in default mode fallback when result text is empty (F-10)', () => {
+		setup({ custom: { mode: 'default' }, 'custom:special': { mode: 'lines' } });
+		const renderers = resolver('custom', () => undefined);
+		const result = { content: [] };
+		const comp = renderers.renderResult(result, { expanded: false, isPartial: false }, theme, context);
+		expect(comp.render(80)).toEqual([]);
 	});
 });

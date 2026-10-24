@@ -29,6 +29,8 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.0.1",
+    "@earendil-works/pi-tui": "^1.0.1",
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
